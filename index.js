@@ -6,7 +6,7 @@ import routeActividad from './app/routes/routes.actividad.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const databaseUrl = process.env.DATABASE_URL;
+
 
 app.use(express.json());
 
