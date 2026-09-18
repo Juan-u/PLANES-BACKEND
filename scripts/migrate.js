@@ -6,10 +6,17 @@ dotenv.config();
 
 const connection = await mysql.createConnection({
     host: process.env.MYSQLHOST,
+<<<<<<< HEAD
     port: Number(process.env.MYSQLPORT || 3306),
     user: process.env.MYSQLUSER,
     password: process.env.MYSQLPASSWORD,
     database: process.env.MYSQLDATABASE,
+=======
+    user: process.env.MYSQLUSER,
+    password: process.env.MYSQLPASSWORD,
+    database: process.env.MYSQLDATABASE,
+    port: Number(process.env.MYSQLPORT || 3306),
+>>>>>>> 12abb054edf962da605da40c2511ae56fa6bcd57
     multipleStatements: true
 });
 
@@ -19,7 +26,10 @@ try {
     console.log('======================================');
 
     console.log(`Host: ${process.env.MYSQLHOST}`);
+<<<<<<< HEAD
     console.log(`Port: ${process.env.MYSQLPORT}`);
+=======
+>>>>>>> 12abb054edf962da605da40c2511ae56fa6bcd57
     console.log(`Database: ${process.env.MYSQLDATABASE}`);
     console.log(`User: ${process.env.MYSQLUSER}`);
 
