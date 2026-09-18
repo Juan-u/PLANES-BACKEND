@@ -6,10 +6,10 @@ dotenv.config();
 
 const connection = await mysql.createConnection({
     host: process.env.MYSQLHOST,
+    port: Number(process.env.MYSQLPORT || 3306),
     user: process.env.MYSQLUSER,
     password: process.env.MYSQLPASSWORD,
     database: process.env.MYSQLDATABASE,
-    port: Number(process.env.MYSQLPORT || 3306),
     multipleStatements: true
 });
 
@@ -19,6 +19,7 @@ try {
     console.log('======================================');
 
     console.log(`Host: ${process.env.MYSQLHOST}`);
+    console.log(`Port: ${process.env.MYSQLPORT}`);
     console.log(`Database: ${process.env.MYSQLDATABASE}`);
     console.log(`User: ${process.env.MYSQLUSER}`);
 
@@ -29,8 +30,11 @@ try {
 
     await connection.query(sql);
 
+    console.log('======================================');
     console.log('Migración ejecutada correctamente.');
-    console.log('Tablas creadas:');
+    console.log('======================================');
+
+    console.log('Tablas creadas/verificadas:');
     console.log('- areas');
     console.log('- usuarios');
     console.log('- periodos');
@@ -38,15 +42,14 @@ try {
     console.log('- calificacion');
 
 } catch (error) {
-
+    console.error('======================================');
     console.error('Error ejecutando la migración:');
     console.error(error);
+    console.error('======================================');
 
     process.exitCode = 1;
 
 } finally {
-
     await connection.end();
-
     console.log('Conexión cerrada.');
 }
