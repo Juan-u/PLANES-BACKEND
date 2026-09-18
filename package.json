@@ -5,6 +5,7 @@
   "description": "Backend API - Sistema Planes de Acción",
   "main": "index.js",
   "scripts": {
+    "start": "node index.js",
     "dev": "node index.js",
     "migrate": "node scripts/migrate.js"
   },
