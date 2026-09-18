@@ -13,14 +13,13 @@ export const login = async (req, res) => {
     }
 
     try {
-        // Buscar usuario únicamente por correo
         const [rows] = await db.execute(
             `
-            SELECT 
+            SELECT
                 id,
                 nombre,
                 correo,
-                contraseña,
+                password,
                 estado,
                 area_id
             FROM usuarios
@@ -38,17 +37,15 @@ export const login = async (req, res) => {
 
         const usuario = rows[0];
 
-        // Verificar estado
         if (usuario.estado !== 'Activo') {
             return res.status(403).json({
                 message: 'El usuario está inactivo'
             });
         }
 
-        // Comparar contraseña enviada con el hash almacenado
         const contraseñaValida = await bcrypt.compare(
             contraseña,
-            usuario.contraseña
+            usuario.password
         );
 
         if (!contraseñaValida) {
@@ -57,7 +54,6 @@ export const login = async (req, res) => {
             });
         }
 
-        // Crear JWT
         const token = jwt.sign(
             {
                 id: usuario.id,
