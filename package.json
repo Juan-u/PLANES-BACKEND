@@ -5,7 +5,8 @@
   "description": "Backend API - Sistema Planes de Acción",
   "main": "index.js",
   "scripts": {
-    "dev": "node index.js"
+    "dev": "node index.js",
+    "migrate": "node scripts/migrate.js"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
