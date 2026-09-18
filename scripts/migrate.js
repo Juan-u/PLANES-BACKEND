@@ -5,11 +5,11 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const connection = await mysql.createConnection({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    port: Number(process.env.DB_PORT || 3306),
+    host: process.env.MYSQLHOST,
+    user: process.env.MYSQLUSER,
+    password: process.env.MYSQLPASSWORD,
+    database: process.env.MYSQLDATABASE,
+    port: Number(process.env.MYSQLPORT || 3306),
     multipleStatements: true
 });
 
@@ -17,6 +17,10 @@ try {
     console.log('======================================');
     console.log('Iniciando migración...');
     console.log('======================================');
+
+    console.log(`Host: ${process.env.MYSQLHOST}`);
+    console.log(`Database: ${process.env.MYSQLDATABASE}`);
+    console.log(`User: ${process.env.MYSQLUSER}`);
 
     const sql = await fs.readFile(
         './migrations/001_initial.sql',
