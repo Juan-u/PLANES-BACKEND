@@ -24,7 +24,7 @@ app.use('/api', routeAuth);
 // Usuarios
 app.use('./api', routeUsuario);
 
-app.use('/api', routeArea);
+app.use('./api', routeArea);
 
 // Planes
 app.use('/api', routePlan);
