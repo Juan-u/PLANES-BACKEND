@@ -19,7 +19,7 @@ export const getAreas = async (req, res) => {
 
 
 // GET /api/periodos/:id
-export const getAreasById = async (req, res) => {
+export const getAreaById = async (req, res) => {
     const { id } = req.params;
 
     try {

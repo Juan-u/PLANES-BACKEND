@@ -88,6 +88,70 @@ export const crearPeriodo = async (req, res) => {
     }
 };
 
+export const abrirPeriodo = async (req, res) => {
+
+    const { id } = req.params;
+
+    try {
+
+        const [result] = await db.execute(
+            `UPDATE periodos
+             SET estado = 'Abierto'
+             WHERE id = ?`,
+            [id]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({
+                message: 'Periodo no encontrado'
+            });
+        }
+
+        res.json({
+            message: 'Periodo abierto correctamente'
+        });
+
+    } catch (error) {
+
+        console.error('Error al abrir periodo:', error);
+
+        res.status(500).json({
+            message: 'Error del servidor'
+        });
+    }
+};
+export const cerrarPeriodo = async (req, res) => {
+
+    const { id } = req.params;
+
+    try {
+
+        const [result] = await db.execute(
+            `UPDATE periodos
+             SET estado = 'Cerrado'
+             WHERE id = ?`,
+            [id]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({
+                message: 'Periodo no encontrado'
+            });
+        }
+
+        res.json({
+            message: 'Periodo cerrado correctamente'
+        });
+
+    } catch (error) {
+
+        console.error('Error al cerrar periodo:', error);
+
+        res.status(500).json({
+            message: 'Error del servidor'
+        });
+    }
+};
 
 // PUT /api/periodos/:id
 export const actualizarPeriodo = async (req, res) => {

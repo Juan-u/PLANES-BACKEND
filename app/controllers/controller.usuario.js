@@ -70,7 +70,7 @@ export const crearUsuarios = async (req, res) => {
         nombre,
         correo,
         password,
-        id_area
+        area_id
     } = req.body;
 
     // Validaciones
@@ -89,7 +89,7 @@ export const crearUsuarios = async (req, res) => {
                 nombre,
                 correo,
                 password,
-                id_area || null
+                area_id || null
             ]
         );
 
@@ -118,7 +118,7 @@ export const actualizarUsuarios = async (req, res) => {
         nombre,
         correo,
         password,
-        id_area
+        area_id
     } = req.body;
 
     if (!nombre || !correo) {

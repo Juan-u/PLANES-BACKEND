@@ -5,7 +5,7 @@ import {
     getAreaById,
     crearArea,
     actualizarArea,
-} from "../controllers/controller.periodo.js";
+} from "../controllers/controller.area.js";
 
 const router = Router();
 

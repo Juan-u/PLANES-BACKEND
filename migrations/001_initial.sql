@@ -12,7 +12,14 @@ CREATE TABLE IF NOT EXISTS areas (
     nombre VARCHAR(150) NOT NULL UNIQUE
 );
 
+-- ============================================
+-- TABLA: roles
+-- ============================================
 
+CREATE TABLE IF NOT EXISTS roles (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL UNIQUE
+);
 -- ============================================
 -- TABLA: usuarios
 -- ============================================
@@ -24,10 +31,17 @@ CREATE TABLE IF NOT EXISTS usuarios (
     contraseña VARCHAR(255) NOT NULL,
     estado ENUM('Activo', 'Inactivo') NOT NULL DEFAULT 'Activo',
     area_id INT NULL,
+    rol_id INT NOT NULL,
 
     CONSTRAINT fk_usuarios_area
         FOREIGN KEY (area_id)
         REFERENCES areas(id)
+        ON DELETE SET NULL
+        ON UPDATE CASCADE,
+
+    CONSTRAINT fk_usuarios_rol
+        FOREIGN KEY (rol_id)
+        REFERENCES roles(id)
         ON DELETE SET NULL
         ON UPDATE CASCADE
 );
@@ -41,7 +55,8 @@ CREATE TABLE IF NOT EXISTS periodos (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
     fecha_inicio DATE NOT NULL,
-    fecha_fin DATE NOT NULL
+    fecha_fin DATE NOT NULL,
+    estado ENUM('Cerrado', 'Abierto') NOT NULL DEFAULT 'Cerrado'
 );
 
 
@@ -75,12 +90,29 @@ CREATE TABLE IF NOT EXISTS planeacion (
 
 CREATE TABLE IF NOT EXISTS calificacion (
     id INT AUTO_INCREMENT PRIMARY KEY,
+
     planeacion_id INT NOT NULL,
+
     resultado_obtenido DECIMAL(10,2) NULL,
+
+    observacion TEXT NULL,
+
+    fecha_registro DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT fk_calificacion_planeacion
         FOREIGN KEY (planeacion_id)
         REFERENCES planeacion(id)
         ON DELETE CASCADE
-        ON UPDATE CASCADE
+        ON UPDATE CASCADE,
+
+    CONSTRAINT fk_calificacion_periodo
+        FOREIGN KEY (periodo_id)
+        REFERENCES periodos(id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE,
+
+    CONSTRAINT uk_calificacion_periodo
+        UNIQUE (planeacion_id, periodo_id)
 );
+
+

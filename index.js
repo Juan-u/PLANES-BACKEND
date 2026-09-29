@@ -7,6 +7,7 @@ import routeArea from './app/routes/routes.area.js';
 import routePlan from './app/routes/routes.plan.js';
 import routeActividad from './app/routes/routes.actividad.js';
 import routePeriodo from './app/routes/routes.periodo.js';
+import routeCalificacion from './app/routes/routes.calificacion.js';
 
 const app = express();
 
@@ -34,6 +35,9 @@ app.use('/api', routeActividad);
 
 // Periodos
 app.use('/api', routePeriodo);
+
+//calificaciones
+app.use('/api', routeCalificacion);
 
 // ============================================
 // HEALTH CHECK
