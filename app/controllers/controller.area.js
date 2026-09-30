@@ -4,7 +4,7 @@ import db from '../config/db.js';
 export const getAreas = async (req, res) => {
     try {
         const [rows] = await db.execute(
-            'SELECT * FROM areas ORDER BY id_area DESC'
+            'SELECT * FROM areas ORDER BY id DESC'
         );
 
         res.json(rows);
@@ -24,7 +24,7 @@ export const getAreaById = async (req, res) => {
 
     try {
         const [rows] = await db.execute(
-            'SELECT * FROM areas WHERE id_area = ?',
+            'SELECT * FROM areas WHERE id = ?',
             [id]
         );
 
@@ -71,7 +71,7 @@ export const crearArea = async (req, res) => {
 
         res.status(201).json({
             message: 'Area creado correctamente',
-            id_area: result.insertId
+            id: result.insertId
         });
 
     } catch (error) {
@@ -99,7 +99,7 @@ export const actualizarArea = async (req, res) => {
         const [result] = await db.execute(
             `UPDATE areas
              SET nombre = ?
-             WHERE id_area = ?`,
+             WHERE id = ?`,
             [nombre, id]
         );
 
