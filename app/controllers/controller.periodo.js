@@ -4,7 +4,7 @@ import db from '../config/db.js';
 export const getPeriodos = async (req, res) => {
     try {
         const [rows] = await db.execute(
-            'SELECT * FROM periodos ORDER BY id_periodo DESC'
+            'SELECT * FROM periodos ORDER BY id DESC'
         );
 
         res.json(rows);
@@ -24,7 +24,7 @@ export const getPeriodoById = async (req, res) => {
 
     try {
         const [rows] = await db.execute(
-            'SELECT * FROM periodos WHERE id_periodo = ?',
+            'SELECT * FROM periodos WHERE id = ?',
             [id]
         );
 
@@ -177,7 +177,7 @@ export const actualizarPeriodo = async (req, res) => {
                  fecha_inicio = ?,
                  fecha_fin = ?,
                  estado = ?
-             WHERE id_periodo = ?`,
+             WHERE id = ?`,
             [
                 nombre,
                 fecha_inicio,

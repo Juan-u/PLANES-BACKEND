@@ -5,19 +5,19 @@ import db from '../config/db.js';
 // GET /api/usuarios?id_usuario=X
 // ============================================================
 export const getUsuarios = async (req, res) => {
-    const { id_usuario } = req.query;
+    const { id } = req.query;
 
     try {
         let rows;
 
-        if (id_usuario) {
+        if (id) {
             [rows] = await db.execute(
-                'SELECT * FROM usuarios WHERE id_usuario = ? ORDER BY id_usuario DESC',
-                [id_usuario]
+                'SELECT * FROM usuarios WHERE id = ? ORDER BY id DESC',
+                [id]
             );
         } else {
             [rows] = await db.execute(
-                'SELECT * FROM usuarios ORDER BY id_usuario DESC'
+                'SELECT * FROM usuarios ORDER BY id DESC'
             );
         }
 
@@ -40,7 +40,7 @@ export const getUsuariosById = async (req, res) => {
 
     try {
         const [rows] = await db.execute(
-            'SELECT * FROM usuarios WHERE id_usuario = ?',
+            'SELECT * FROM usuarios WHERE id = ?',
             [id]
         );
 
@@ -118,7 +118,7 @@ export const actualizarUsuarios = async (req, res) => {
         nombre,
         correo,
         password,
-        area_id
+        area_id 
     } = req.body;
 
     if (!nombre || !correo) {
@@ -142,7 +142,7 @@ export const actualizarUsuarios = async (req, res) => {
                     nombre,
                     correo,
                     password,
-                    id_area || null,
+                    area_id || null,
                     id
                 ]
             );
@@ -156,7 +156,7 @@ export const actualizarUsuarios = async (req, res) => {
                 [
                     nombre,
                     correo,
-                    id_area || null,
+                    area_id || null,
                     id
                 ]
             );
@@ -190,7 +190,7 @@ export const eliminarUsuarios = async (req, res) => {
 
     try {
         const [result] = await db.execute(
-            'DELETE FROM usuarios WHERE id_usuario = ?',
+            'DELETE FROM usuarios WHERE id = ?',
             [id]
         );
 

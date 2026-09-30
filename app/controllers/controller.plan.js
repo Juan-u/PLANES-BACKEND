@@ -4,7 +4,7 @@ import db from '../config/db.js';
 export const getPlanes = async (req, res) => {
     try {
         const [rows] = await db.execute(
-            'SELECT * FROM plan_accion ORDER BY id_plan DESC'
+            'SELECT * FROM plan_accion ORDER BY id DESC'
         );
         res.json(rows);
     } catch (error) {
@@ -18,7 +18,7 @@ export const getPlanById = async (req, res) => {
     const { id } = req.params;
     try {
         const [rows] = await db.execute(
-            'SELECT * FROM plan_accion WHERE id_plan = ?',
+            'SELECT * FROM plan_accion WHERE id = ?',
             [id]
         );
         if (rows.length === 0) {
@@ -69,7 +69,7 @@ export const actualizarPlan = async (req, res) => {
 
     try {
         const [result] = await db.execute(
-            'UPDATE plan_accion SET nombre = ?, descripcion = ?, estado = ? WHERE id_plan = ?',
+            'UPDATE plan_accion SET nombre = ?, descripcion = ?, estado = ? WHERE id = ?',
             [nombre, descripcion || null, estado || 'Activo', id]
         );
 
@@ -89,7 +89,7 @@ export const eliminarPlan = async (req, res) => {
     const { id } = req.params;
     try {
         const [result] = await db.execute(
-            'DELETE FROM plan_accion WHERE id_plan = ?',
+            'DELETE FROM plan_accion WHERE id = ?',
             [id]
         );
 
