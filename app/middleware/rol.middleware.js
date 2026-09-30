@@ -7,8 +7,9 @@ const verificarRol = (...rolesPermitidos) => {
                 message: 'Usuario no autenticado'
             });
         }
+        const rolId = Number(req.usuario.rol_id);
 
-        if (!rolesPermitidos.includes(req.usuario.rol_id)) {
+        if (!rolesPermitidos.includes(rolId)) {
             return res.status(403).json({
                 message: 'No tiene permisos para realizar esta acción'
             });
