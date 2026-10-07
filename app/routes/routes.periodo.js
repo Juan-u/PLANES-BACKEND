@@ -14,8 +14,8 @@ const router = Router();
 
 router.get   ('/periodos',     verificarToken, getPeriodos);
 router.get   ('/periodos/:id', verificarToken, getPeriodoById);
-router.post  ('/periodos',     verificarToken,verificarRol(2),  crearPeriodo);
-router.put   ('/periodos/:id', verificarToken, verificarRol(2), actualizarPeriodo);
-router.put   ('/periodos/:id/abrir', verificarToken, verificarRol(2), abrirPeriodo);
-router.put   ('/periodos/:id/cerrar', verificarToken, verificarRol(2), cerrarPeriodo);
+router.post  ('/periodos',     verificarToken,verificarRol(1,2),  crearPeriodo);
+router.put   ('/periodos/:id', verificarToken, verificarRol(1,2), actualizarPeriodo);
+router.put   ('/periodos/:id/abrir', verificarToken, verificarRol(1,2), abrirPeriodo);
+router.put   ('/periodos/:id/cerrar', verificarToken, verificarRol(1,2), cerrarPeriodo);
 export default router;
