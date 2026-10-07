@@ -3,6 +3,7 @@ import express from 'express';
 
 import routeAuth from './app/routes/routes.auth.js';
 import routeUsuario from './app/routes/routes.usuario.js';
+import routeRol from './app/routes/routes.rol.js';
 import routeArea from './app/routes/routes.area.js';
 import routePlan from './app/routes/routes.plan.js';
 import routeActividad from './app/routes/routes.actividad.js';
@@ -25,6 +26,10 @@ app.use('/api', routeAuth);
 // Usuarios
 app.use('/api', routeUsuario);
 
+//rol
+app.use('/api', routeRol);
+
+//area
 app.use('/api', routeArea);
 
 // Planes
