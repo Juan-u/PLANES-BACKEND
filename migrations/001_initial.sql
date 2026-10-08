@@ -1,28 +1,12 @@
--- ============================================
--- BASE DE DATOS: SISTEMA PLANES DE ACCIÓN
--- MIGRACIÓN 001
--- ============================================
-
--- ============================================
--- TABLA: areas
--- ============================================
-
 CREATE TABLE IF NOT EXISTS areas (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(150) NOT NULL UNIQUE
 );
 
--- ============================================
--- TABLA: roles
--- ============================================
-
 CREATE TABLE IF NOT EXISTS roles (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL UNIQUE
 );
--- ============================================
--- TABLA: usuarios
--- ============================================
 
 CREATE TABLE IF NOT EXISTS usuarios (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -42,14 +26,9 @@ CREATE TABLE IF NOT EXISTS usuarios (
     CONSTRAINT fk_usuarios_rol
         FOREIGN KEY (rol_id)
         REFERENCES roles(id)
-        ON DELETE SET NULL
+        ON DELETE RESTRICT
         ON UPDATE CASCADE
 );
-
-
--- ============================================
--- TABLA: periodos
--- ============================================
 
 CREATE TABLE IF NOT EXISTS periodos (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -58,11 +37,6 @@ CREATE TABLE IF NOT EXISTS periodos (
     fecha_fin DATE NOT NULL,
     estado ENUM('Cerrado', 'Abierto') NOT NULL DEFAULT 'Cerrado'
 );
-
-
--- ============================================
--- TABLA: planeacion
--- ============================================
 
 CREATE TABLE IF NOT EXISTS planeacion (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -83,20 +57,13 @@ CREATE TABLE IF NOT EXISTS planeacion (
         ON UPDATE CASCADE
 );
 
-
--- ============================================
--- TABLA: calificacion
--- ============================================
-
 CREATE TABLE IF NOT EXISTS calificacion (
     id INT AUTO_INCREMENT PRIMARY KEY,
-
     planeacion_id INT NOT NULL,
+    periodo_id INT NOT NULL,
 
     resultado_obtenido DECIMAL(10,2) NULL,
-
     observacion TEXT NULL,
-
     fecha_registro DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT fk_calificacion_planeacion
@@ -114,5 +81,3 @@ CREATE TABLE IF NOT EXISTS calificacion (
     CONSTRAINT uk_calificacion_periodo
         UNIQUE (planeacion_id, periodo_id)
 );
-
-
