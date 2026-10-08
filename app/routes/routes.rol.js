@@ -7,8 +7,7 @@ import {
     getRoles,
     getRolById,
     crearRol,
-    actualizarRol,
-    eliminarRol
+    actualizarRol
 } from "../controllers/controller.rol.js";
 
 const router = Router();
