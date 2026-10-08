@@ -1,24 +1,28 @@
-
 import db from '../config/db.js';
 
 
-// listar
+// ============================================
+// GET /api/usuarios
+// ============================================
 
 export const getUsuarios = async (req, res) => {
     try {
         const [rows] = await db.execute(`
-            SELECT 
-                u.id_usuario,
+            SELECT
+                u.id,
                 u.nombre,
                 u.correo,
+                u.estado,
                 u.area_id,
                 u.rol_id,
                 a.nombre AS area,
                 r.nombre AS rol
             FROM usuarios u
-            LEFT JOIN areas a ON u.area_id = a.id_area
-            LEFT JOIN roles r ON u.rol_id = r.id_rol
-            ORDER BY u.id_usuario DESC
+            LEFT JOIN areas a
+                ON u.area_id = a.id
+            LEFT JOIN roles r
+                ON u.rol_id = r.id
+            ORDER BY u.id DESC
         `);
 
         res.json(rows);
@@ -33,22 +37,30 @@ export const getUsuarios = async (req, res) => {
 };
 
 
-
+// ============================================
 // GET /api/usuarios/:id
+// ============================================
 
 export const getUsuariosById = async (req, res) => {
     const { id } = req.params;
 
     try {
         const [rows] = await db.execute(`
-            SELECT 
-                id_usuario,
-                nombre,
-                correo,
-                area_id,
-                rol_id
-            FROM usuarios
-            WHERE id_usuario = ?
+            SELECT
+                u.id,
+                u.nombre,
+                u.correo,
+                u.estado,
+                u.area_id,
+                u.rol_id,
+                a.nombre AS area,
+                r.nombre AS rol
+            FROM usuarios u
+            LEFT JOIN areas a
+                ON u.area_id = a.id
+            LEFT JOIN roles r
+                ON u.rol_id = r.id
+            WHERE u.id = ?
         `, [id]);
 
         if (rows.length === 0) {
@@ -69,8 +81,9 @@ export const getUsuariosById = async (req, res) => {
 };
 
 
-
-// PostCrear 
+// ============================================
+// POST /api/usuarios
+// ============================================
 
 export const crearUsuarios = async (req, res) => {
     const {
@@ -83,14 +96,14 @@ export const crearUsuarios = async (req, res) => {
 
     if (!nombre || !correo || !password || !rol_id) {
         return res.status(400).json({
-            message: 'Nombre, correo, password y rol son requeridos'
+            message: 'Nombre, correo, contraseña y rol son requeridos'
         });
     }
 
     try {
         const [result] = await db.execute(`
             INSERT INTO usuarios
-                (nombre, correo, password, area_id, rol_id)
+                (nombre, correo, contraseña, area_id, rol_id)
             VALUES (?, ?, ?, ?, ?)
         `, [
             nombre,
@@ -102,11 +115,17 @@ export const crearUsuarios = async (req, res) => {
 
         res.status(201).json({
             message: 'Usuario creado correctamente',
-            id_usuario: result.insertId
+            id: result.insertId
         });
 
     } catch (error) {
         console.error('Error al crear usuario:', error);
+
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(400).json({
+                message: 'El correo ya está registrado'
+            });
+        }
 
         res.status(500).json({
             message: 'Error del servidor'
@@ -115,8 +134,10 @@ export const crearUsuarios = async (req, res) => {
 };
 
 
+// ============================================
+// PUT /api/usuarios/:id
+// ============================================
 
-// Post editar
 export const actualizarUsuarios = async (req, res) => {
     const { id } = req.params;
 
@@ -125,7 +146,8 @@ export const actualizarUsuarios = async (req, res) => {
         correo,
         password,
         area_id,
-        rol_id
+        rol_id,
+        estado
     } = req.body;
 
     if (!nombre || !correo || !rol_id) {
@@ -135,49 +157,62 @@ export const actualizarUsuarios = async (req, res) => {
     }
 
     try {
-        let result;
 
+        // Si enviaron nueva contraseña
         if (password && password.trim() !== '') {
 
-            [result] = await db.execute(`
+            const [result] = await db.execute(`
                 UPDATE usuarios
-                SET nombre = ?,
+                SET
+                    nombre = ?,
                     correo = ?,
-                    password = ?,
+                    contraseña = ?,
                     area_id = ?,
-                    rol_id = ?
-                WHERE id_usuario = ?
+                    rol_id = ?,
+                    estado = ?
+                WHERE id = ?
             `, [
                 nombre,
                 correo,
                 password,
                 area_id || null,
                 rol_id,
+                estado || 'Activo',
                 id
             ]);
 
+            if (result.affectedRows === 0) {
+                return res.status(404).json({
+                    message: 'Usuario no encontrado'
+                });
+            }
+
         } else {
 
-            [result] = await db.execute(`
+            // Mantener contraseña actual
+            const [result] = await db.execute(`
                 UPDATE usuarios
-                SET nombre = ?,
+                SET
+                    nombre = ?,
                     correo = ?,
                     area_id = ?,
-                    rol_id = ?
-                WHERE id_usuario = ?
+                    rol_id = ?,
+                    estado = ?
+                WHERE id = ?
             `, [
                 nombre,
                 correo,
                 area_id || null,
                 rol_id,
+                estado || 'Activo',
                 id
             ]);
-        }
 
-        if (result.affectedRows === 0) {
-            return res.status(404).json({
-                message: 'Usuario no encontrado'
-            });
+            if (result.affectedRows === 0) {
+                return res.status(404).json({
+                    message: 'Usuario no encontrado'
+                });
+            }
         }
 
         res.json({
@@ -187,6 +222,12 @@ export const actualizarUsuarios = async (req, res) => {
     } catch (error) {
         console.error('Error al actualizar usuario:', error);
 
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(400).json({
+                message: 'El correo ya está registrado'
+            });
+        }
+
         res.status(500).json({
             message: 'Error del servidor'
         });
@@ -194,15 +235,16 @@ export const actualizarUsuarios = async (req, res) => {
 };
 
 
-
-// eliminar
+// ============================================
+// DELETE /api/usuarios/:id
+// ============================================
 
 export const eliminarUsuarios = async (req, res) => {
     const { id } = req.params;
 
     try {
         const [result] = await db.execute(
-            'DELETE FROM usuarios WHERE id_usuario = ?',
+            'DELETE FROM usuarios WHERE id = ?',
             [id]
         );
 
@@ -224,4 +266,3 @@ export const eliminarUsuarios = async (req, res) => {
         });
     }
 };
-
