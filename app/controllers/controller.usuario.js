@@ -1,30 +1,31 @@
+
 import db from '../config/db.js';
 
-// ============================================================
-// GET /api/usuarios
-// GET /api/usuarios?id_usuario=X
-// ============================================================
+
+// listar
+
 export const getUsuarios = async (req, res) => {
-    const { id } = req.query;
-
     try {
-        let rows;
-
-        if (id) {
-            [rows] = await db.execute(
-                'SELECT * FROM usuarios WHERE id = ? ORDER BY id DESC',
-                [id]
-            );
-        } else {
-            [rows] = await db.execute(
-                'SELECT * FROM usuarios ORDER BY id DESC'
-            );
-        }
+        const [rows] = await db.execute(`
+            SELECT 
+                u.id_usuario,
+                u.nombre,
+                u.correo,
+                u.area_id,
+                u.rol_id,
+                a.nombre AS area,
+                r.nombre AS rol
+            FROM usuarios u
+            LEFT JOIN areas a ON u.area_id = a.id_area
+            LEFT JOIN roles r ON u.rol_id = r.id_rol
+            ORDER BY u.id_usuario DESC
+        `);
 
         res.json(rows);
 
     } catch (error) {
         console.error('Error al obtener usuarios:', error);
+
         res.status(500).json({
             message: 'Error del servidor'
         });
@@ -32,17 +33,23 @@ export const getUsuarios = async (req, res) => {
 };
 
 
-// ============================================================
+
 // GET /api/usuarios/:id
-// ============================================================
+
 export const getUsuariosById = async (req, res) => {
     const { id } = req.params;
 
     try {
-        const [rows] = await db.execute(
-            'SELECT * FROM usuarios WHERE id = ?',
-            [id]
-        );
+        const [rows] = await db.execute(`
+            SELECT 
+                id_usuario,
+                nombre,
+                correo,
+                area_id,
+                rol_id
+            FROM usuarios
+            WHERE id_usuario = ?
+        `, [id]);
 
         if (rows.length === 0) {
             return res.status(404).json({
@@ -62,36 +69,36 @@ export const getUsuariosById = async (req, res) => {
 };
 
 
-// ============================================================
-// POST /api/usuarios
-// ============================================================
+
+// PostCrear 
+
 export const crearUsuarios = async (req, res) => {
     const {
         nombre,
         correo,
         password,
-        area_id
+        area_id,
+        rol_id
     } = req.body;
 
-    // Validaciones
-    if (!nombre || !correo || !password) {
+    if (!nombre || !correo || !password || !rol_id) {
         return res.status(400).json({
-            message: 'Nombre, correo y password son requeridos'
+            message: 'Nombre, correo, password y rol son requeridos'
         });
     }
 
     try {
-        const [result] = await db.execute(
-            `INSERT INTO usuarios
-            (nombre, correo, password, area_id)
-            VALUES (?, ?, ?, ?)`,
-            [
-                nombre,
-                correo,
-                password,
-                area_id || null
-            ]
-        );
+        const [result] = await db.execute(`
+            INSERT INTO usuarios
+                (nombre, correo, password, area_id, rol_id)
+            VALUES (?, ?, ?, ?, ?)
+        `, [
+            nombre,
+            correo,
+            password,
+            area_id || null,
+            rol_id
+        ]);
 
         res.status(201).json({
             message: 'Usuario creado correctamente',
@@ -108,9 +115,8 @@ export const crearUsuarios = async (req, res) => {
 };
 
 
-// ============================================================
-// PUT /api/usuarios/:id
-// ============================================================
+
+// Post editar
 export const actualizarUsuarios = async (req, res) => {
     const { id } = req.params;
 
@@ -118,48 +124,54 @@ export const actualizarUsuarios = async (req, res) => {
         nombre,
         correo,
         password,
-        area_id 
+        area_id,
+        rol_id
     } = req.body;
 
-    if (!nombre || !correo) {
+    if (!nombre || !correo || !rol_id) {
         return res.status(400).json({
-            message: 'Nombre y correo son requeridos'
+            message: 'Nombre, correo y rol son requeridos'
         });
     }
 
     try {
         let result;
 
-        if (password) {
-            [result] = await db.execute(
-                `UPDATE usuarios
-                 SET nombre = ?,
-                     correo = ?,
-                     password = ?,
-                     area_id = ?
-                 WHERE id_usuario = ?`,
-                [
-                    nombre,
-                    correo,
-                    password,
-                    area_id || null,
-                    id
-                ]
-            );
+        if (password && password.trim() !== '') {
+
+            [result] = await db.execute(`
+                UPDATE usuarios
+                SET nombre = ?,
+                    correo = ?,
+                    password = ?,
+                    area_id = ?,
+                    rol_id = ?
+                WHERE id_usuario = ?
+            `, [
+                nombre,
+                correo,
+                password,
+                area_id || null,
+                rol_id,
+                id
+            ]);
+
         } else {
-            [result] = await db.execute(
-                `UPDATE usuarios
-                 SET nombre = ?,
-                     correo = ?,
-                     area_id = ?
-                 WHERE id_usuario = ?`,
-                [
-                    nombre,
-                    correo,
-                    area_id || null,
-                    id
-                ]
-            );
+
+            [result] = await db.execute(`
+                UPDATE usuarios
+                SET nombre = ?,
+                    correo = ?,
+                    area_id = ?,
+                    rol_id = ?
+                WHERE id_usuario = ?
+            `, [
+                nombre,
+                correo,
+                area_id || null,
+                rol_id,
+                id
+            ]);
         }
 
         if (result.affectedRows === 0) {
@@ -182,15 +194,15 @@ export const actualizarUsuarios = async (req, res) => {
 };
 
 
-// ============================================================
-// DELETE /api/usuarios/:id
-// ============================================================
+
+// eliminar
+
 export const eliminarUsuarios = async (req, res) => {
     const { id } = req.params;
 
     try {
         const [result] = await db.execute(
-            'DELETE FROM usuarios WHERE id = ?',
+            'DELETE FROM usuarios WHERE id_usuario = ?',
             [id]
         );
 
@@ -212,3 +224,4 @@ export const eliminarUsuarios = async (req, res) => {
         });
     }
 };
+
