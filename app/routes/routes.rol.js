@@ -21,6 +21,5 @@ router.post(    "/roles",    verificarToken,    verificarRol(1),    crearRol);
 
 router.put(    "/roles/:id",    verificarToken,    verificarRol(1),    actualizarRol);
 
-router.delete("/roles/:id",    verificarToken,    verificarRol(1),    eliminarRol);
 
 export default router;
