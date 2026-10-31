@@ -1,0 +1,20 @@
+services:
+  planes-accion-db-test:
+    image: mariadb:10.4.32
+    environment:
+      MARIADB_DATABASE: planes_accion_test
+      MARIADB_USER: planes_test
+      MARIADB_PASSWORD: ${TEST_DB_PASSWORD:?Set TEST_DB_PASSWORD in your local shell}
+      MARIADB_ROOT_PASSWORD: ${TEST_DB_ROOT_PASSWORD:?Set TEST_DB_ROOT_PASSWORD in your local shell}
+    ports:
+      - "127.0.0.1:3307:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - "../../../ACTIVIDAD PROYECTO 6/sistema_planes_accion.sql:/docker-entrypoint-initdb.d/10-reference-structure.sql:ro"
+      - "../migrations/role_permissions_v1.sql:/docker-entrypoint-initdb.d/20-roles.sql:ro"
+      - "../migrations/20261030_followup_evidence_v1.sql:/docker-entrypoint-initdb.d/30-followup-evidence.sql:ro"
+    # Fresh ephemeral database, loopback only; no data volume or automatic startup.
