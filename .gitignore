@@ -1,6 +1,7 @@
 ﻿node_modules/
 .env
 .env.*
+!.env.example
 !test-db/.env.test.example
 *.pem
 *.key
@@ -18,3 +19,6 @@ credentials.json
 *.log
 *.tmp
 *.temp
+
+# Private evidence files are runtime data, never source code.
+/storage/evidence/

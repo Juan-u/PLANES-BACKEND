@@ -1,0 +1,12 @@
+import{test}from'node:test';import assert from'node:assert/strict';
+import{reportFilters,csvCell,reportCsv,controlText}from'../../app/services/institutional-report.rules.js';
+import{createInstitutionalReportService}from'../../app/services/institutional-report.service.js';
+import{createInternalControlService}from'../../app/services/internal-control.service.js';
+for(const input of [{anio:'2026x'},{trimestre:5},{planId:'1 OR 1=1'},{activityId:['1','2']},{responsable:{x:1}},{followupState:'official'},{responsable:'\u0000'}])test('rejects malformed report filter '+JSON.stringify(input),()=>assert.throws(()=>reportFilters(input)));
+test('whitelists filters and never accepts authority or SQL parameters',()=>assert.deepEqual(reportFilters({planId:'1',anio:'2026',trimestre:'4',authority:true,sql:'x',responsable:' Persona '}),{planId:1,anio:2026,trimestre:4,responsable:'Persona'}));
+test('rejects repeated calendar filters and unknown institutional plan states',()=>{for(const input of [{anio:['2026']},{trimestre:['1']},{planState:'oficial'}])assert.throws(()=>reportFilters(input));});
+for(const value of ['=1+1',' +cmd','\t@cmd','\uFEFF=HYPERLINK("x")','-42','@x'])test('CSV formula protection '+JSON.stringify(value),()=>assert.ok(csvCell(value).startsWith('"\'')));
+test('CSV preserves quotes, newlines, zero and Unicode',()=>{assert.equal(csvCell('línea\n"dato"'),'"línea\n""dato"""');assert.equal(csvCell(0),'"0"');});
+test('CSV includes source classification and provenance',()=>{const s=reportCsv({meta:{id:'fixture',character:'analitico'},filters:{anio:2026},summary:[],activities:[],followups:[],evidence:[],history:[]});assert.match(s,/analitico/);assert.match(s,/2026/);});
+test('Control Interno validates length and rejects blank required text',()=>{assert.throws(()=>controlText('  ',{required:true}));assert.throws(()=>controlText('abc',{max:2}));assert.equal(controlText(null),null);assert.equal(controlText(' Texto '),'Texto');});
+test('general permissions or client authority cannot publish or create institutional records',async()=>{const pool={getConnection(){throw new Error('Must not access database');}},reports=createInstitutionalReportService({pool}),control=createInternalControlService({pool});await assert.rejects(reports.publish({actorId:1},{authority:true}),e=>e.status===403);await assert.rejects(control.act({actorId:1},'create',{authority:{allowed:true},planId:1}),e=>e.status===403);});

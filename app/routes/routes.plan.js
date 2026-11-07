@@ -19,10 +19,11 @@ export function crearRouterPlanes({ pool, autorizarConsultaPlanes, autorizarCrea
     throw new TypeError('La política para actualizar planes debe ser una función.');
   }
 
-  const { listarPlanes, obtenerPlan, crearPlan, actualizarPlan } = crearControladorConsultaPlanes(pool);
+  const { listarPlanes, obtenerPlan, crearPlan, actualizarPlan, catalogoInstitucional } = crearControladorConsultaPlanes(pool);
   const router = Router();
 
   router.get('/planes', verificarToken, autorizarConsultaPlanes, listarPlanes);
+  router.get('/planes/catalogo-institucional', verificarToken, autorizarConsultaPlanes, catalogoInstitucional);
   router.get('/planes/:id', verificarToken, autorizarConsultaPlanes, obtenerPlan);
   if (autorizarCrearPlan) router.post('/planes', verificarToken, autorizarCrearPlan, crearPlan);
   if (autorizarActualizarPlan) router.put('/planes/:id', verificarToken, autorizarActualizarPlan, actualizarPlan);

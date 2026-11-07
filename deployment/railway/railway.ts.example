@@ -1,0 +1,23 @@
+// Optional platform manifest, not an application technology migration.
+// Copy to .railway/railway.ts only in a separate, new deployment workspace.
+// Install Railway's authoring SDK there; never apply to an existing project.
+import {defineRailway, project, service, mysql, volume, preserve} from 'railway/iac';
+export default defineRailway((ctx) => {
+  if (ctx.environment !== 'private-test' || ctx.projectName !== 'planes-accion-private-test') throw new Error('Wrong deployment target');
+  const db = mysql('MySQL');
+  const evidence = volume('private-evidence', {region: 'us-west2', sizeMB: 1024});
+  const backend = service('backend', {
+    start: 'npm start', healthcheck: '/health/ready', healthcheckTimeout: 90, replicas: 1,
+    volumeMounts: {'/data/evidence': evidence},
+    env: {DEPLOYMENT_PROFILE: 'railway-private-test', NODE_ENV: 'staging', APP_HOST: '::', PORT: '3000',
+      DB_HOST: db.env.RAILWAY_PRIVATE_DOMAIN, DB_PORT: '3306', DB_NAME: 'planes_accion_railway_test', DB_USER: 'planes_backend', DB_PASSWORD: preserve(), JWT_SECRET: preserve(),
+      ENABLE_ROLE_PERMISSION_ROUTES: 'true', ROLE_APPROVAL_WINDOW_MS: preserve(), EVIDENCE_STORAGE_DIR: '/data/evidence'},
+  });
+  const frontend = service('frontend', {
+    start: 'npm start', healthcheck: '/health/ready', healthcheckTimeout: 90, replicas: 1,
+    env: {DEPLOYMENT_PROFILE: 'railway-private-test', NODE_ENV: 'production', APP_HOST: '::', PORT: '4000',
+      BACKEND_API_URL: 'http://${{backend.RAILWAY_PRIVATE_DOMAIN}}:${{backend.PORT}}/api', PUBLIC_ORIGIN: preserve(), SESSION_SECRET: preserve(),
+      SESSION_DB_HOST: db.env.RAILWAY_PRIVATE_DOMAIN, SESSION_DB_PORT: '3306', SESSION_DB_NAME: 'planes_accion_railway_test', SESSION_DB_USER: 'planes_web_sessions', SESSION_DB_PASSWORD: preserve(), APP_TIME_ZONE: 'America/Bogota'},
+  });
+  return project('planes-accion-private-test', {resources: [db, evidence, backend, frontend]});
+});

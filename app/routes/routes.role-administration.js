@@ -3,7 +3,7 @@ import { createRoleAdministrationController } from '../controllers/controller.ro
 import { verificarToken } from '../middleware/auth.middleware.js';
 import { isProtectedRoleAdministrationService } from '../services/role-administration.composition.js';
 
-/** Opt-in router. Authorization is checked again inside every service transaction under the mutex. */
+/** Non-production router. Authorization is checked inside every service transaction under the mutex. */
 export function createRoleAdministrationRouter({ service } = {}) {
   if (!isProtectedRoleAdministrationService(service)) {
     throw new TypeError('The router requires a service from the protected administration composition.');
@@ -21,7 +21,7 @@ export function createRoleAdministrationRouter({ service } = {}) {
   return router;
 }
 
-/** Self-only capability snapshot, safe to mount even while mutation routes remain opt-in. */
+/** Self-only capability snapshot; it has no mutation surface. */
 export function createRoleCapabilitiesRouter({ service } = {}) {
   if (!isProtectedRoleAdministrationService(service)) {
     throw new TypeError('The router requires a service from the protected administration composition.');

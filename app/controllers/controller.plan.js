@@ -1,3 +1,6 @@
+import { assertWorkflowEditable, attachWorkflowStates, workflowSchemaReady } from '../services/plan-workflow.guard.js';
+import { WorkflowError } from '../services/plan-workflow.rules.js';
+import { normalizeDraft, attachDrafts, saveDraft, DraftError } from '../services/institutional-draft.service.js';
 import { createMysqlTransactionManager } from '../services/mysql-transaction-manager.js';
 
 const SQL_LISTAR_PLANES =
@@ -37,7 +40,7 @@ export function crearControladorConsultaPlanes(pool) {
   async function listarPlanes(req, res) {
     try {
       const [rows] = await pool.query(SQL_LISTAR_PLANES);
-      return res.json(rows);
+      return res.json(await attachWorkflowStates(pool, await attachDrafts(pool, rows, 'plan')));
     } catch {
       return res.status(503).json({
         error: 'No fue posible consultar los planes temporalmente.'
@@ -58,7 +61,7 @@ export function crearControladorConsultaPlanes(pool) {
         return res.status(404).json({ error: 'Plan no encontrado.' });
       }
 
-      return res.json(rows[0]);
+      return res.json((await attachWorkflowStates(pool, await attachDrafts(pool, rows, 'plan')))[0]);
     } catch {
       return res.status(503).json({
         error: 'No fue posible consultar el plan temporalmente.'
@@ -72,6 +75,7 @@ export function crearControladorConsultaPlanes(pool) {
     if (!usuarioId) return res.status(401).json({ error: 'Autenticación requerida.' });
     if (!input) return res.status(400).json({ error: 'Revisa el nombre y la descripción del plan.' });
     try {
+      const draft = normalizeDraft(req.body, 'plan');
       const plan = await enTransaccion(pool, async (connection) => {
         const [created] = await connection.execute(
           'INSERT INTO plan_accion (nombre, descripcion, fecha_creacion, id_usuario) VALUES (?, ?, UTC_DATE(), ?)',
@@ -82,10 +86,12 @@ export function crearControladorConsultaPlanes(pool) {
           'INSERT INTO historico (accion, fecha, id_usuario) VALUES (?, UTC_DATE(), ?)',
           [`plan_accion_created:${created.insertId}`, usuarioId]
         );
+        await saveDraft(connection, 'plan', created.insertId, created.insertId, draft, usuarioId);
         return { id_plan: created.insertId, nombre: input.nombre, descripcion: input.descripcion, estado: null };
       });
       return res.status(201).json(plan);
-    } catch {
+    } catch (error) {
+      if (error instanceof DraftError || error instanceof WorkflowError) return res.status(error.status).json({ error: error.message });
       return res.status(503).json({ error: 'No fue posible crear el plan temporalmente.' });
     }
   }
@@ -97,23 +103,34 @@ export function crearControladorConsultaPlanes(pool) {
     if (!usuarioId) return res.status(401).json({ error: 'Autenticación requerida.' });
     if (!id || !input) return res.status(400).json({ error: 'Revisa el identificador, nombre y descripción del plan.' });
     try {
+      const draft = normalizeDraft(req.body, 'plan');
       const result = await enTransaccion(pool, async (connection) => {
         const [found] = await connection.execute(
           'SELECT id_plan, nombre, descripcion, fecha_creacion, estado FROM plan_accion WHERE id_plan = ? LIMIT 1 FOR UPDATE', [id]
         );
         if (!Array.isArray(found) || found.length === 0) return { missing: true };
+        await assertWorkflowEditable(connection,id);
         await connection.execute('UPDATE plan_accion SET nombre = ?, descripcion = ? WHERE id_plan = ?',
           [input.nombre, input.descripcion, id]);
         await connection.execute('INSERT INTO historico (accion, fecha, id_usuario) VALUES (?, UTC_DATE(), ?)',
           [`plan_accion_updated:${id}`, usuarioId]);
+        await saveDraft(connection, 'plan', id, id, draft, usuarioId);
         return { plan: { ...found[0], nombre: input.nombre, descripcion: input.descripcion } };
       });
       if (result.missing) return res.status(404).json({ error: 'Plan no encontrado.' });
       return res.json(result.plan);
-    } catch {
+    } catch (error) {
+      if (error instanceof DraftError || error instanceof WorkflowError) return res.status(error.status).json({ error: error.message });
       return res.status(503).json({ error: 'No fue posible actualizar el plan temporalmente.' });
     }
   }
 
-  return { listarPlanes, obtenerPlan, crearPlan, actualizarPlan };
+  async function catalogoInstitucional(req, res) {
+    try {
+      const [procesos] = await pool.query('SELECT id_proceso,nombre FROM proceso_institucional WHERE activo=1 ORDER BY nombre');
+      const workflowAvailable = await workflowSchemaReady(pool);
+      return res.json({ procesos, workflowAvailable });
+    } catch { return res.status(503).json({ error: 'El catálogo institucional no está disponible.' }); }
+  }
+  return { listarPlanes, obtenerPlan, crearPlan, actualizarPlan, catalogoInstitucional };
 }

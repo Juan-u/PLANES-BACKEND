@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { createReadModelsController } from '../../app/controllers/controller.readmodels.js';
 
 function response() {
-  return { code: 200, body: null, status(code) { this.code = code; return this; }, json(value) { this.body = value; return this; }, type(value) { this.contentType = value; return this; }, attachment(value) { this.filename = value; return this; }, send(value) { this.body = value; return this; } };
+  return { code: 200, statusCode:200, body: null, status(code) { this.code = code; this.statusCode=code; return this; }, json(value) { this.body = value; return this; }, type(value) { this.contentType = value; return this; }, attachment(value) { this.filename = value; return this; }, send(value) { this.body = value; return this; } };
 }
 
 test('evidence query only returns existing metadata for the requested activity', async () => {
@@ -43,4 +43,9 @@ test('rejects invalid report filters without querying', async () => {
   await createReadModelsController(pool).listAssessments({ query: { trimestre: '2 OR 1=1' } }, res);
   assert.equal(res.code, 400);
   assert.equal(queries, 0);
+});
+test('assessment query and export reject quarters outside the existing 1-4 range',async()=>{
+ let queries=0;const controller=createReadModelsController({async query(){queries++;return[[],[]];}});
+ for(const trimestre of ['0','5',['1','2']]){const res=response();await controller.listAssessments({query:{trimestre}},res);assert.equal(res.code,400);const csv=response();await controller.exportAssessments({query:{trimestre}},csv);assert.equal(csv.code,400);}
+ assert.equal(queries,0);
 });

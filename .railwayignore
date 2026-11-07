@@ -1,0 +1,25 @@
+# Upload source only. Runtime data and local operations never leave this machine.
+.git/
+node_modules/
+.env
+.env.*
+test/
+test-db/
+storage/
+scripts/
+*.tmp
+**/*.tmp/**
+*.temp
+**/*.temp/**
+*.log
+*.pem
+*.key
+*.p12
+*.pfx
+*.dpapi
+*.dump
+*.bak
+*backup*.sql
+*dump*.sql
+credentials.json
+**/credentials.json

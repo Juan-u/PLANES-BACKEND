@@ -1,3 +1,6 @@
+import { assertWorkflowEditable, attachWorkflowStates } from '../services/plan-workflow.guard.js';
+import { WorkflowError } from '../services/plan-workflow.rules.js';
+import { normalizeDraft, attachDrafts, saveDraft, DraftError } from '../services/institutional-draft.service.js';
 import { createMysqlTransactionManager } from '../services/mysql-transaction-manager.js';
 
 const MAX_INT = 2_147_483_647;
@@ -61,7 +64,7 @@ export function createActivityController(pool) {
     const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
     try {
       const [rows] = await pool.query(`SELECT ${BASE_COLUMNS} FROM actividad${where} ORDER BY id_actividad`, params);
-      return res.json(Array.isArray(rows) ? rows : []);
+      return res.json(await attachWorkflowStates(pool,await attachDrafts(pool, Array.isArray(rows) ? rows : [], 'actividad'),'actividad'));
     } catch { return res.status(503).json({ error: 'No fue posible consultar las actividades temporalmente.' }); }
   }
 
@@ -71,7 +74,7 @@ export function createActivityController(pool) {
     try {
       const [rows] = await pool.query(`SELECT ${BASE_COLUMNS} FROM actividad WHERE id_actividad = ? LIMIT 1`, [id]);
       if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Actividad no encontrada.' });
-      return res.json(rows[0]);
+      return res.json((await attachWorkflowStates(pool,await attachDrafts(pool, rows, 'actividad'),'actividad'))[0]);
     } catch { return res.status(503).json({ error: 'No fue posible consultar la actividad temporalmente.' }); }
   }
 
@@ -81,18 +84,21 @@ export function createActivityController(pool) {
     if (!userId) return res.status(401).json({ error: 'Autenticación requerida.' });
     if (!input) return res.status(400).json({ error: 'Revisa los datos y las fechas de la actividad.' });
     try {
+      const draft = normalizeDraft(req.body, 'actividad');
       const result = await transactions.run(async (tx) => {
         const [plans] = await tx.execute('SELECT id_plan FROM plan_accion WHERE id_plan = ? LIMIT 1 FOR UPDATE', [input.id_plan]);
         if (!Array.isArray(plans) || !plans.length) return { missingPlan: true };
+        await assertWorkflowEditable(tx,input.id_plan);
         const [insert] = await tx.execute(`INSERT INTO actividad (descripcion, responsable, fecha_inicio, fecha_fin, estado, id_plan)
           VALUES (?, ?, ?, ?, ?, ?)`, [input.descripcion, input.responsable, input.fecha_inicio, input.fecha_fin, input.estado, input.id_plan]);
         if (!Number.isSafeInteger(insert?.insertId) || insert.insertId < 1) throw new Error('ACTIVITY_INSERT_FAILED');
         await tx.execute('INSERT INTO historico (accion, fecha, id_usuario) VALUES (?, UTC_DATE(), ?)', [`actividad_created:${insert.insertId}`, userId]);
+        await saveDraft(tx, 'actividad', insert.insertId, input.id_plan, draft, userId);
         return { activity: { id_actividad: insert.insertId, ...input } };
       });
       if (result.missingPlan) return res.status(404).json({ error: 'Plan no encontrado.' });
       return res.status(201).json(result.activity);
-    } catch { return res.status(503).json({ error: 'No fue posible crear la actividad temporalmente.' }); }
+    } catch (error) { if (error instanceof DraftError || error instanceof WorkflowError) return res.status(error.status).json({ error: error.message }); return res.status(503).json({ error: 'No fue posible crear la actividad temporalmente.' }); }
   }
 
   async function update(req, res) {
@@ -102,17 +108,20 @@ export function createActivityController(pool) {
     if (!userId) return res.status(401).json({ error: 'Autenticación requerida.' });
     if (!id || !input) return res.status(400).json({ error: 'Revisa los datos y las fechas de la actividad.' });
     try {
+      const draft = normalizeDraft(req.body, 'actividad');
       const result = await transactions.run(async (tx) => {
         const [rows] = await tx.execute(`SELECT ${BASE_COLUMNS} FROM actividad WHERE id_actividad = ? LIMIT 1 FOR UPDATE`, [id]);
         if (!Array.isArray(rows) || !rows.length) return { missing: true };
+        await assertWorkflowEditable(tx,rows[0].id_plan);
         await tx.execute(`UPDATE actividad SET descripcion = ?, responsable = ?, fecha_inicio = ?, fecha_fin = ?, estado = ? WHERE id_actividad = ?`,
           [input.descripcion, input.responsable, input.fecha_inicio, input.fecha_fin, input.estado, id]);
         await tx.execute('INSERT INTO historico (accion, fecha, id_usuario) VALUES (?, UTC_DATE(), ?)', [`actividad_updated:${id}`, userId]);
+        await saveDraft(tx, 'actividad', id, rows[0].id_plan, draft, userId);
         return { activity: { ...rows[0], ...input } };
       });
       if (result.missing) return res.status(404).json({ error: 'Actividad no encontrada.' });
       return res.json(result.activity);
-    } catch { return res.status(503).json({ error: 'No fue posible actualizar la actividad temporalmente.' }); }
+    } catch (error) { if (error instanceof DraftError || error instanceof WorkflowError) return res.status(error.status).json({ error: error.message }); return res.status(503).json({ error: 'No fue posible actualizar la actividad temporalmente.' }); }
   }
 
   return Object.freeze({ list, getById, create, update });

@@ -21,6 +21,7 @@ function crearPool({ result = [[], []], error = null } = {}) {
   return {
     query: mock.fn(async (...args) => {
       if (error) throw error;
+      if (!args[0].includes('FROM plan_accion')) return [[], []];
       return result;
     })
   };
@@ -29,6 +30,7 @@ function crearPool({ result = [[], []], error = null } = {}) {
 function crearPoolTransaccional({ execute } = {}) {
   const events = [];
   const connection = {
+    async query() { throw Object.assign(new Error('D not migrated'), {code:'ER_NO_SUCH_TABLE'}); },
     async beginTransaction() { events.push('begin'); },
     async execute(sql, params) {
       events.push({ sql, params });
@@ -59,8 +61,8 @@ test('lista planes usando solo campos observados y no expone id_usuario', async 
 
   await listarPlanes({}, res);
 
-  assert.deepEqual(res.body, planesSinteticos);
-  assert.equal(pool.query.mock.callCount(), 1);
+  assert.deepEqual(res.body, planesSinteticos.map(p => ({ ...p, institucional: null })));
+  assert.equal(pool.query.mock.callCount(), 5);
   const [sql, params] = pool.query.mock.calls[0].arguments;
   assert.equal(
     sql,
@@ -78,7 +80,7 @@ test('consulta un plan existente con ID parametrizado', async () => {
 
   await obtenerPlan({ params: { id: '17' } }, res);
 
-  assert.deepEqual(res.body, planesSinteticos[0]);
+  assert.deepEqual(res.body, { ...planesSinteticos[0], institucional: null });
   assert.deepEqual(pool.query.mock.calls[0].arguments, [
     'SELECT id_plan, nombre, descripcion, fecha_creacion, estado FROM plan_accion WHERE id_plan = ? LIMIT 1',
     [17]

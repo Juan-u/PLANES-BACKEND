@@ -32,7 +32,7 @@ export function createReadModelsController(pool) {
     const quarterRaw = req.query?.trimestre;
     const quarter = quarterRaw == null || quarterRaw === '' ? null : idValue(quarterRaw);
     if ((req.query?.planId != null && req.query.planId !== '' && !planId) ||
-        (quarterRaw != null && quarterRaw !== '' && !quarter)) return res.status(400).json({ error: 'Filtros de informe inválidos.' });
+        (quarterRaw != null && quarterRaw !== '' && (!quarter || quarter > 4))) return res.status(400).json({ error: 'Filtros de informe inválidos.' });
     const clauses = [];
     const params = [];
     if (planId) { clauses.push('c.id_plan = ?'); params.push(planId); }

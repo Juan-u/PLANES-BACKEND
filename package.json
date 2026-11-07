@@ -5,7 +5,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "node index.js"
+    "dev": "node index.js",
+    "start": "node index.js",
+    "start:local": "node --env-file=.env.local index.js",
+    "check:local": "node scripts/check-local.mjs"
   },
   "keywords": [],
   "author": "",

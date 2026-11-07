@@ -9,6 +9,7 @@ function response() {
 function poolWithTransaction(execute) {
   const calls = [];
   const connection = {
+    async query() { throw Object.assign(new Error('D not migrated'), {code:'ER_NO_SUCH_TABLE'}); },
     async beginTransaction() { calls.push('begin'); },
     async execute(sql, params) { calls.push({ sql, params }); return execute(sql, params); },
     async commit() { calls.push('commit'); },
@@ -20,7 +21,7 @@ function poolWithTransaction(execute) {
 
 test('lists activities with parameterized plan, state and responsible filters', async () => {
   let observed;
-  const pool = { query: async (sql, params) => { observed = { sql, params }; return [[{ id_actividad: 2 }], []]; }, getConnection() {} };
+  const pool = { query: async (sql, params) => { if (!sql.includes('FROM actividad ') && !sql.endsWith('FROM actividad ORDER BY id_actividad')) return [[], []]; observed = { sql, params }; return [[{ id_actividad: 2 }], []]; }, getConnection() {} };
   const res = response();
   await createActivityController(pool).list({ query: { planId: '7', estado: 'En proceso', responsable: 'Ana' } }, res);
   assert.deepEqual(observed.params, [7, 'En proceso', '%Ana%']);
@@ -39,7 +40,7 @@ test('rejects malformed filters without querying', async () => {
 
 test('returns activity detail by parameterized signed integer ID', async () => {
   let query;
-  const pool = { async query(sql, params) { query = { sql, params }; return [[{ id_actividad: 6, id_plan: 4 }], []]; }, getConnection() {} };
+  const pool = { async query(sql, params) { if (!sql.includes('FROM actividad WHERE')) return [[], []]; query = { sql, params }; return [[{ id_actividad: 6, id_plan: 4 }], []]; }, getConnection() {} };
   const res = response();
   await createActivityController(pool).getById({ params: { id: '6' } }, res);
   assert.equal(res.body.id_actividad, 6);

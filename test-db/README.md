@@ -1,4 +1,12 @@
-﻿# Local isolated MariaDB integration-test environment
+# Local isolated MariaDB integration-test environment
+
+> CURRENT NOTICE (Block K): this container now holds the consolidated local database
+> (43 tables/171 records). Do not run the historical down/discard commands below or
+> recreate it: there is no named data volume. The instructions describe its original
+> disposable setup, not current operation. See ../GUIA_INSTALACION.md and
+> ../OPERACION_Y_RECUPERACION.md. The old external dump mount is not a portable
+> installation baseline; ../schema/through-block-f.sql supports empty databases only.
+
 
 This Compose project is separate from the application `.env` and the commercial database. It starts a fresh MariaDB 10.4.32 container, binds only to loopback port 3307, and does not reuse a host data volume.
 

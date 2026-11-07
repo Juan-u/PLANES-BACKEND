@@ -2,7 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-export const MAX_EVIDENCE_BYTES = 65_536;
+export const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024;
+export const LEGACY_EVIDENCE_BYTES = 65_536;
 export const EVIDENCE_TYPES = Object.freeze({
   'application/pdf': 'pdf',
   'image/png': 'png',
@@ -41,9 +42,10 @@ export function createEvidenceStorage({ directory = process.env.EVIDENCE_STORAGE
   return Object.freeze({
     async save({ originalName, mimeType, base64 }) {
       const name = safeName(originalName);
-      if (!name || !Object.hasOwn(EVIDENCE_TYPES, mimeType) || typeof base64 !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64)) {
+      if (!name || !Object.hasOwn(EVIDENCE_TYPES, mimeType) || typeof base64 !== 'string' || base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
         throw new TypeError('Invalid evidence payload.');
       }
+      if(base64.length>4*Math.ceil(MAX_EVIDENCE_BYTES/3))throw new RangeError('Evidence size is invalid.');
       const bytes = Buffer.from(base64, 'base64');
       if (!bytes.length || bytes.length > MAX_EVIDENCE_BYTES || bytes.toString('base64') !== base64) throw new RangeError('Evidence size or encoding is invalid.');
       if (!matchesMime(bytes, mimeType)) throw new TypeError('File content does not match its declared MIME type.');
@@ -53,6 +55,16 @@ export function createEvidenceStorage({ directory = process.env.EVIDENCE_STORAGE
       const destination = filePath(key, mimeType);
       await writeFile(destination, bytes, { flag: 'wx', mode: 0o600 });
       return { storageKey: key, originalName: name, mimeType, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), destination };
+    },
+    async saveBytes({originalName,mimeType,bytes}) {
+      const name=safeName(originalName),extension=path.extname(name||'').toLowerCase();
+      const allowed={'application/pdf':['.pdf'],'image/png':['.png'],'image/jpeg':['.jpg','.jpeg'],'text/plain':['.txt']};
+      if(!name||!allowed[mimeType]?.includes(extension)||!Buffer.isBuffer(bytes))throw new TypeError('Invalid evidence file name or type.');
+      if(!bytes.length||bytes.length>MAX_EVIDENCE_BYTES)throw new RangeError('Evidence size is invalid.');
+      if(!matchesMime(bytes,mimeType))throw new TypeError('File content does not match MIME type.');
+      const key=ids.next();const destination=filePath(key,mimeType);
+      await mkdir(root,{recursive:true,mode:0o700});await writeFile(destination,bytes,{flag:'wx',mode:0o600});
+      return {storageKey:key,originalName:name,mimeType,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),destination};
     },
     async read({ storageKey, mimeType, expectedBytes, expectedSha256 }) {
       const bytes = await readFile(filePath(storageKey, mimeType));

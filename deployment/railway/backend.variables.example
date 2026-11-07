@@ -1,0 +1,14 @@
+DEPLOYMENT_PROFILE=railway-private-test
+NODE_ENV=staging
+APP_HOST=::
+PORT=3000
+DB_HOST=${{MySQL.RAILWAY_PRIVATE_DOMAIN}}
+DB_PORT=3306
+DB_NAME=planes_accion_railway_test
+DB_USER=planes_backend
+DB_PASSWORD=
+JWT_SECRET=
+ENABLE_ROLE_PERMISSION_ROUTES=true
+ROLE_APPROVAL_WINDOW_MS=
+EVIDENCE_STORAGE_DIR=/data/evidence
+# RAILWAY_VOLUME_MOUNT_PATH is injected by Railway for the actual mounted volume.

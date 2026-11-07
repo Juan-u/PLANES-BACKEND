@@ -6,7 +6,15 @@ El módulo cuenta con el servicio de asignaciones, repositorios protegidos por e
 
 La autenticación del login permanece independiente de la autorización de módulos. El API de cuentas mantiene la validación de cuenta activa. La interfaz EJS consume el API con el JWT guardado en la sesión del servidor y aplica CSRF a sus formularios de escritura.
 
-Las rutas administrativas son optativas mediante `ENABLE_ROLE_PERMISSION_ROUTES=true`, requieren `ROLE_APPROVAL_WINDOW_MS` y rechazan el arranque si se intenta habilitarlas bajo `NODE_ENV=production`. La migración `documentacion funcional recuperada/migracion_roles_permisos_v1.sql` es un borrador: no se ha ejecutado ni validado contra MariaDB comercial. Los routers de roles y asignación no se montan por defecto.
+El catálogo y la administración de roles/permisos se montan únicamente fuera de `NODE_ENV=production`; el router conserva JWT y cada operación vuelve a comprobar su permiso vigente dentro de la transacción y bajo el mutex persistente. El endpoint de capacidades solo informa permisos efectivos de la propia cuenta. La asignación, revocación y decisión de roles siguen siendo optativas mediante `ENABLE_ROLE_PERMISSION_ROUTES=true`, requieren `ROLE_APPROVAL_WINDOW_MS` y rechazan el arranque si se intenta habilitarlas bajo `NODE_ENV=production`. La migración `documentacion funcional recuperada/migracion_roles_permisos_v1.sql` es un borrador: no se ha ejecutado ni validado contra MariaDB comercial.
+
+Las rutas funcionales de planes, actividades, seguimiento, evidencias, informes y flujo de planes se montan independientemente de ese interruptor. Cada endpoint conserva sus verificaciones JWT y de permisos; habilitar el funcionamiento de los módulos no habilita los routers administrativos de roles o asignaciones.
+
+## Pendiente de decisión funcional: Control Interno
+
+Las consultas de Control Interno requieren actualmente `M15.audit.read`, `M03.plans.read`, `M04.activities.read` y `M05.followup.read`. La navegación del frontend solo debe mostrar el módulo cuando están presentes los cuatro permisos, de modo que coincide con el control efectivo del servicio. El perfil inicial `auditor` no incluye los permisos de planes, actividades ni seguimiento, por lo que su acceso queda denegado sin cambiar la matriz ni conceder permisos automáticamente.
+
+Queda pendiente que el responsable funcional confirme si ese alcance combinado es la política deseada o si Control Interno debe limitarse a `M15.audit.read`. Cualquier modificación de la política requerirá aprobación explícita; mientras tanto, se conserva la comprobación más restrictiva existente.
 
 ## Catálogo y permisos configurables
 
@@ -21,26 +29,26 @@ El perfil administrador total está protegido frente a la eliminación de sus pe
 
 ## Administración HTTP
 
-Con el router optativo habilitado, el API expone:
+En entornos no productivos, el API expone el catálogo y las consultas protegidas de administración de roles/permisos:
 
 | Método y ruta | Operación |
 |---|---|
 | `GET /api/roles/capacidades` | Consultar exclusivamente los permisos efectivos del usuario autenticado; se monta en entornos no productivos como lectura propia |
-| `POST /api/roles/asignaciones` | Crear asignación ordinaria o solicitar aprobación privilegiada |
-| `POST /api/roles/asignaciones/:assignmentId/revocacion` | Revocar o solicitar revocación |
-| `POST /api/roles/solicitudes/:requestId/decision` | Aprobar o rechazar una solicitud pendiente |
+| `POST /api/roles/asignaciones` | Optativa: crear asignación ordinaria o solicitar aprobación privilegiada |
+| `POST /api/roles/asignaciones/:assignmentId/revocacion` | Optativa: revocar o solicitar revocación |
+| `POST /api/roles/solicitudes/:requestId/decision` | Optativa: aprobar o rechazar una solicitud pendiente |
 | `GET /api/roles/catalogo` | Leer roles y su configuración |
 | `GET /api/roles/permisos` | Leer catálogo de permisos |
 | `GET /api/roles/solicitudes` | Leer solicitudes y decisiones |
 | `GET /api/roles/usuarios/:userId/asignaciones` | Leer asignaciones del usuario indicado |
-| `POST /api/roles/catalogo` | Crear rol sin permisos asociados |
-| `PUT /api/roles/catalogo/:roleId/configuracion` | Cambiar clasificación y reglas de vigencia/ámbito |
-| `PUT /api/roles/catalogo/:roleId/permisos` | Configurar permisos del rol |
-| `PUT /api/roles/permisos/:code/estado` | Activar/desactivar un permiso sin borrar historial |
+| `POST /api/roles/catalogo` | Crear rol sin permisos asociados; requiere autorización vigente |
+| `PUT /api/roles/catalogo/:roleId/configuracion` | Cambiar clasificación y reglas de vigencia/ámbito; requiere autorización vigente |
+| `PUT /api/roles/catalogo/:roleId/permisos` | Configurar permisos del rol; requiere autorización vigente |
+| `PUT /api/roles/permisos/:code/estado` | Activar/desactivar un permiso sin borrar historial; requiere autorización vigente |
 
-La autoridad se vuelve a comprobar dentro de cada transacción y bajo el mutex. La auditoría, el cambio efectivo y la decisión se escriben conjuntamente. Los formularios no son una barrera de seguridad: el API valida cada acción.
+Las rutas de catálogo, solicitudes y asignaciones de lectura del router de roles se montan en entornos no productivos aunque `ENABLE_ROLE_PERMISSION_ROUTES` esté desactivado; cada una conserva autenticación JWT y autorización interna. La asignación, revocación y decisión de cambios siguen requiriendo el flag y la ventana aprobada. La autoridad de las operaciones administrativas se vuelve a comprobar dentro de cada transacción y bajo el mutex. La auditoría, el cambio efectivo y la decisión se escriben conjuntamente. Los formularios no son una barrera de seguridad: el API valida cada acción.
 
-Las rutas de usuarios conservan la autenticación JWT. Las lecturas se protegen con el middleware de permisos; creación, actualización, desactivación y reactivación consultan la autorización dentro de la transacción que realiza el cambio y guarda auditoría. La desactivación es lógica, no borra usuarios ni su historial. El endpoint de capacidades no se monta en producción. El router de asignaciones y los endpoints mutables/de catálogo se montan solo con `ENABLE_ROLE_PERMISSION_ROUTES=true`; en producción ese flag causa rechazo de arranque.
+Las rutas de usuarios conservan la autenticación JWT. Las lecturas se protegen con el middleware de permisos; creación, actualización, desactivación y reactivación consultan la autorización dentro de la transacción que realiza el cambio y guarda auditoría. La desactivación es lógica, no borra usuarios ni su historial. El endpoint de capacidades y el router de administración de roles no se montan en producción. El router de asignaciones solo se monta con `ENABLE_ROLE_PERMISSION_ROUTES=true`; en producción ese flag causa rechazo de arranque.
 
 ## Bootstrap de desarrollo — no ejecutado
 

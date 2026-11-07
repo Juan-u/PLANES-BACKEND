@@ -48,11 +48,11 @@ test('no construye rutas si falta una política de autorización', () => {
   assert.throws(() => crearRouterPlanes({ pool }), /política de autorización/i);
 });
 
-test('ambas rutas ordenan JWT antes de autorización y del controlador', () => {
+test('las rutas de consulta y catálogo ordenan JWT antes de autorización y del controlador', () => {
   const authorizationGate = (req, res, next) => next();
   const router = crearRouterPlanes({ pool, autorizarConsultaPlanes: authorizationGate });
 
-  for (const path of ['/planes', '/planes/:id']) {
+  for (const path of ['/planes', '/planes/catalogo-institucional', '/planes/:id']) {
     const [authentication, authorization, controller] = obtenerRuta(router, path);
     assert.equal(authentication.name, 'verificarToken');
     assert.equal(authorization, authorizationGate);
