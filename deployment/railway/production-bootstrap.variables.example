@@ -1,0 +1,9 @@
+# Temporary variables for the one-time schema initialization only.
+BOOTSTRAP_DB_USER=
+BOOTSTRAP_DB_PASSWORD=
+SESSION_DB_PASSWORD=
+
+# Separate one-time admin bootstrap variables. Store values only as Railway secrets.
+PRODUCTION_ADMIN_BOOTSTRAP_CONFIRMATION=CREATE_AUTHORIZED_PRODUCTION_ADMINS_ONCE
+PRODUCTION_ADMIN_APPROVAL_REFERENCE=
+PRODUCTION_ADMIN_ACCOUNTS_JSON=
