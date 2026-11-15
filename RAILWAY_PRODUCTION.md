@@ -1,7 +1,7 @@
 # Instalación inicial segura en Railway production
 
 Este procedimiento prepara la instalación para el proyecto Railway
-`cortesía-gracia`, entorno `production`, servicio MySQL `MySQL-EZwX`. No se
+`courteous-grace`, entorno `production`, servicio MySQL `MySQL-EZwX`. No se
 ejecutó ni se conectó a Railway o a una base de datos al preparar este documento.
 La base debe confirmarse vacía por una persona autorizada antes de iniciar.
 

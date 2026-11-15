@@ -10,7 +10,7 @@ import {
 const base = {
   DEPLOYMENT_PROFILE: 'railway-production',
   NODE_ENV: 'production',
-  RAILWAY_PROJECT_NAME: 'cortesía-gracia',
+  RAILWAY_PROJECT_NAME: 'courteous-grace',
   RAILWAY_ENVIRONMENT_NAME: 'production',
   PRODUCTION_MYSQL_SERVICE_NAME: 'MySQL-EZwX',
   PRODUCTION_DB_HOST: 'mysql-production.railway.internal',

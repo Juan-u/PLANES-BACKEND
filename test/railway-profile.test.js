@@ -10,7 +10,7 @@ test('backend fails closed for commercial targets, root, missing volumes or prod
 test('backend production profile requires exact Railway target and keeps role-assignment routes disabled', () => {
   const production = {
     DEPLOYMENT_PROFILE: 'railway-production', NODE_ENV: 'production',
-    RAILWAY_PROJECT_NAME: 'cortesía-gracia', RAILWAY_ENVIRONMENT_NAME: 'production',
+    RAILWAY_PROJECT_NAME: 'courteous-grace', RAILWAY_ENVIRONMENT_NAME: 'production',
     PRODUCTION_MYSQL_SERVICE_NAME: 'MySQL-EZwX',
     PRODUCTION_DB_HOST: 'mysql-production.railway.internal', PRODUCTION_DB_NAME: 'planes_accion_production',
     DB_HOST: 'mysql-production.railway.internal', DB_PORT: '3306', DB_NAME: 'planes_accion_production',

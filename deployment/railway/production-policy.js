@@ -1,4 +1,4 @@
-export const PRODUCTION_RAILWAY_PROJECT = 'cortesía-gracia';
+export const PRODUCTION_RAILWAY_PROJECT = 'courteous-grace';
 export const PRODUCTION_RAILWAY_ENVIRONMENT = 'production';
 export const PRODUCTION_MYSQL_SERVICE = 'MySQL-EZwX';
 export const PRODUCTION_DEPLOYMENT_PROFILE = 'railway-production';
