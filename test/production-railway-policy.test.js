@@ -64,6 +64,7 @@ test('administrator bootstrap requires two unique approved accounts and a refere
   const environment = {
     ...base,
     PRODUCTION_ADMIN_BOOTSTRAP_CONFIRMATION,
+    SESSION_DB_PASSWORD: 'synthetic-only',
     PRODUCTION_ADMIN_APPROVAL_REFERENCE: 'APPROVAL-123',
     PRODUCTION_ADMIN_ACCOUNTS_JSON: JSON.stringify(adminAccounts)
   };
@@ -73,6 +74,10 @@ test('administrator bootstrap requires two unique approved accounts and a refere
   );
   assert.equal(validated.admins.length, 2);
   assert.equal(validated.admins[0].email, 'admin-one@example.invalid');
+  assert.throws(() => validateProductionAdministratorBootstrap(
+    {...environment, SESSION_DB_PASSWORD: ''},
+    ['--create-authorized-production-admins']
+  ), {message: 'PRODUCTION_SESSION_DATABASE_CREDENTIALS_REQUIRED'});
   assert.throws(() => validateProductionAdministratorBootstrap(environment, []));
   assert.throws(() => validateProductionAdministratorBootstrap({...environment, PRODUCTION_ADMIN_APPROVAL_REFERENCE: ''}, ['--create-authorized-production-admins']));
   assert.throws(() => validateProductionAdministratorBootstrap({

@@ -9,7 +9,7 @@
     "start": "node index.js",
     "start:local": "node --env-file=.env.local index.js",
     "check:local": "node scripts/check-local.mjs",
-    "test:railway-policy": "node --test test/railway-profile.test.js test/production-railway-policy.test.js"
+    "test:railway-policy": "node --test test/railway-profile.test.js test/production-railway-policy.test.js test/production-bootstrap-schema.test.js"
   },
   "keywords": [],
   "author": "",

@@ -1,4 +1,5 @@
-# Temporary variables for the one-time schema initialization only.
+# Temporary production setup variables. Retain SESSION_DB_PASSWORD through the
+# authorized administrator bootstrap, then remove it from the Back-End service.
 BOOTSTRAP_DB_USER=
 BOOTSTRAP_DB_PASSWORD=
 SESSION_DB_PASSWORD=

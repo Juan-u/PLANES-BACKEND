@@ -88,10 +88,13 @@ comprobación concediendo permisos amplios a las cuentas de la aplicación.
 cualquier error, preservar el estado y solicitar revisión. Debido al DDL no
 transaccional, un estado parcial no es reintentable de forma segura.
 
-Después del éxito, retirar `BOOTSTRAP_DB_USER`, `BOOTSTRAP_DB_PASSWORD` y
-`SESSION_DB_PASSWORD` del Back-End. Mantener `SESSION_DB_PASSWORD` como secreto
-solo en el Front-End para abrir el store de sesiones. No volver a ejecutar el
-inicializador.
+Después del éxito, retirar `BOOTSTRAP_DB_USER` y `BOOTSTRAP_DB_PASSWORD`.
+Conservar temporalmente `SESSION_DB_PASSWORD` en el Back-End hasta completar el
+bootstrap administrativo: este usa `planes_web_sessions` únicamente para las
+consultas que comprueban que `web_sessions` existe y está vacía, sin conceder ese
+acceso a `planes_backend`. Después de ambos procedimientos,
+mantener `SESSION_DB_PASSWORD` como secreto del Front-End para abrir el store de
+sesiones y retirarla del Back-End. No volver a ejecutar el inicializador.
 
 ## Paso 3: aprobar y aprovisionar las dos cuentas administrativas
 
@@ -105,6 +108,8 @@ crear roles o permisos ad hoc para esta instalación.
 
 Configurar temporalmente en el servicio Back-End:
 
+- `SESSION_DB_PASSWORD`: contraseña secreta de la cuenta técnica
+  `planes_web_sessions` creada por el inicializador.
 - `PRODUCTION_ADMIN_APPROVAL_REFERENCE`: identificador del acta/ticket de
   autorización ya aprobado.
 - `PRODUCTION_ADMIN_ACCOUNTS_JSON`: arreglo con exactamente dos objetos, cada
@@ -125,8 +130,11 @@ node deployment/railway/bootstrap-authorized-admins.mjs --create-authorized-prod
 ```
 
 El script exige el destino exacto, esquema completo y limpio (excepto el mutex
-técnico); crea las dos cuentas con hash scrypt, carga el catálogo de roles y
-permisos existente y asigna `system_administrator` a ambas personas. En la misma
+técnico); comprueba las 43 tablas, 86 claves foráneas y 20 triggers de aplicación
+con `planes_backend`, y verifica la tabla y los datos de `web_sessions` mediante
+`planes_web_sessions`. Así conserva los permisos separados. Crea las dos cuentas
+con hash scrypt, carga el catálogo de roles y permisos existente y asigna
+`system_administrator` a ambas personas. En la misma
 transacción y bajo el mutex persistente, registra cuentas, catálogo, asignaciones,
 solicitudes, decisiones cruzadas y eventos de auditoría con la referencia
 aprobada. Cada asignación privilegiada queda solicitada por una cuenta y aprobada

@@ -1,4 +1,4 @@
-import {createPool} from 'mysql2/promise';
+import {createConnection, createPool} from 'mysql2/promise';
 import {createHash, randomUUID} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {hashPassword} from '../../app/services/password.service.js';
@@ -6,6 +6,7 @@ import {ROLE_PERMISSION_CATALOG} from '../../app/config/role-permission-matrix.j
 import {createAuthorizationMutexRepository} from '../../app/repositories/roles/authorization-mutex.repository.js';
 import {createAuditRepository} from '../../app/repositories/roles/audit.repository.js';
 import {validateProductionAdministratorBootstrap} from './production-policy.js';
+import {assertPristineSchema} from './production-bootstrap-schema.js';
 
 const ROLE_OPERATIONS = ['assign-role', 'revoke-role', 'approve-role-change'];
 const SESSION_SCHEMA_SHA256 = '41e69f3143b23c3cd33fadf3b95e07f233363e6dce6ef372ddd29b23df125f9d';
@@ -38,50 +39,10 @@ const now = new Date();
 const sqlTime = (date) => date.toISOString().slice(0, 23).replace('T', ' ');
 const stamp = now.toISOString();
 
-function rows(result) {
-  if (!Array.isArray(result) || !Array.isArray(result[0])) {
-    throw new Error('PRODUCTION_ADMIN_BOOTSTRAP_INVALID_QUERY_RESULT');
-  }
-  return result[0];
-}
-
 function insertedId(result, code) {
   const id = result?.[0]?.insertId;
   if (!Number.isSafeInteger(Number(id)) || Number(id) < 1) throw new Error(code);
   return Number(id);
-}
-
-async function assertPristineSchema(tx) {
-  const [[database]] = await tx.execute('SELECT DATABASE() AS name, @@port AS port');
-  const [[counts]] = await tx.execute(
-    `SELECT
-       (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()) AS tables_count,
-       (SELECT COUNT(*) FROM information_schema.referential_constraints WHERE constraint_schema = DATABASE()) AS fks,
-       (SELECT COUNT(*) FROM information_schema.triggers WHERE trigger_schema = DATABASE()) AS triggers_count`
-  );
-  const tables = rows(await tx.execute(
-    'SELECT table_name AS name FROM information_schema.tables WHERE table_schema = DATABASE()'
-  )).map(({name}) => name).sort();
-  const expectedTables = [...Object.keys(manifest.definitions), 'web_sessions'].sort();
-  if (database.name !== config.database || Number(database.port) !== 3306 ||
-      Number(counts.tables_count) !== 44 || Number(counts.fks) !== 86 ||
-      Number(counts.triggers_count) !== 20 ||
-      JSON.stringify(tables) !== JSON.stringify(expectedTables)) {
-    throw new Error('PRODUCTION_ADMIN_BOOTSTRAP_SCHEMA_MISMATCH');
-  }
-
-  for (const table of tables) {
-    if (!/^[a-z0-9_]+$/.test(table)) throw new Error('PRODUCTION_ADMIN_BOOTSTRAP_INVALID_TABLE_NAME');
-    const [[count]] = await tx.query(`SELECT COUNT(*) AS n FROM \`${table}\``);
-    const expectedRows = table === 'rol_autorizacion_mutex' ? 1 : 0;
-    if (Number(count.n) !== expectedRows) {
-      throw new Error('PRODUCTION_ADMIN_BOOTSTRAP_REQUIRES_EMPTY_SCHEMA');
-    }
-  }
-  const mutexRows = rows(await tx.execute(
-    'SELECT mutex_id FROM rol_autorizacion_mutex WHERE mutex_id = 1 FOR UPDATE'
-  ));
-  if (mutexRows.length !== 1) throw new Error('PRODUCTION_ADMIN_BOOTSTRAP_MUTEX_MISSING');
 }
 
 async function createAdministratorAccounts(tx, audit) {
@@ -278,10 +239,18 @@ const pool = createPool({
 const mutex = createAuthorizationMutexRepository();
 const audit = createAuditRepository({mutex});
 let connection;
+let sessionConnection;
 let transactionStarted = false;
 let summary;
 
 try {
+  sessionConnection = await createConnection({
+    host: config.host,
+    port: 3306,
+    user: 'planes_web_sessions',
+    password: env.SESSION_DB_PASSWORD,
+    database: config.database
+  });
   connection = await pool.getConnection();
   await connection.beginTransaction();
   transactionStarted = true;
@@ -290,7 +259,12 @@ try {
     execute: (...args) => connection.execute(...args)
   });
   summary = await mutex.withLock(rawTransaction, async (tx) => {
-    await assertPristineSchema(tx);
+    await assertPristineSchema({
+      applicationTx: tx,
+      sessionConnection,
+      databaseName: config.database,
+      manifest
+    });
     const accounts = await createAdministratorAccounts(tx, audit);
     const catalog = await installAdministratorCatalog(tx, audit, accounts);
     return {...catalog, administrators: accounts.length};
@@ -311,6 +285,14 @@ try {
   process.exitCode = 1;
 } finally {
   if (connection) connection.release();
+  if (sessionConnection) {
+    try {
+      await sessionConnection.end();
+    } catch {
+      console.error('Could not confirm closure of the session database connection.');
+      process.exitCode = 1;
+    }
+  }
   try {
     await pool.end();
   } catch {

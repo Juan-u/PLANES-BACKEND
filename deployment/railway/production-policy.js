@@ -58,6 +58,9 @@ export function validateProductionAdministratorBootstrap(env, args) {
       env.PRODUCTION_ADMIN_BOOTSTRAP_CONFIRMATION !== PRODUCTION_ADMIN_BOOTSTRAP_CONFIRMATION) {
     throw new Error('PRODUCTION_ADMIN_BOOTSTRAP_CONFIRMATION_REQUIRED');
   }
+  if (!env.SESSION_DB_PASSWORD) {
+    throw new Error('PRODUCTION_SESSION_DATABASE_CREDENTIALS_REQUIRED');
+  }
 
   const approvalReference = typeof env.PRODUCTION_ADMIN_APPROVAL_REFERENCE === 'string'
     ? env.PRODUCTION_ADMIN_APPROVAL_REFERENCE.trim()
