@@ -119,6 +119,7 @@ export function createRoleAssignmentService(deps = {}) {
       abort('ROLE_CLASSIFICATION_REQUIRED');
     }
     if (typeof role.allowOpenEndedAssignment !== 'boolean') abort('VALIDITY_POLICY_REQUIRED');
+    if (typeof role.requiresScope !== 'boolean') abort('ROLE_CONFIGURATION_REQUIRED');
     return role;
   }
   async function getRole(id, tx) {
@@ -152,21 +153,35 @@ export function createRoleAssignmentService(deps = {}) {
     if (normalizedId(actorId) === normalizedId(input.targetUserId)) return fail('SELF_ASSIGNMENT_DENIED');
     if (!reasonOk(input.reason)) return fail('REASON_REQUIRED');
     if (input.scopeRef != null && !validId(input.scopeRef)) return fail('INVALID_SCOPE_REFERENCE');
+    if (input.scopeResource != null &&
+        (!['plan', 'activity'].includes(input.scopeResource.type) || !validId(input.scopeResource.id))) {
+      return fail('INVALID_SCOPE_RESOURCE');
+    }
+    if (input.scopeRef != null && input.scopeResource != null) return fail('INVALID_SCOPE_RESOURCE');
 
     return transact(async (tx) => {
       const at = await now();
-      const auth = { actorId, operation: ACTION.assign,
-        targetUserId: input.targetUserId, roleId: input.roleId, scopeRef: input.scopeRef ?? null };
-      if (!await permitted(auth, tx)) abort('AUTHORITY_REQUIRED');
       const role = await getRole(input.roleId, tx);
+      if (role.name === 'scope_authority_manager') abort('PROTECTED_SCOPE_AUTHORITY_ASSIGNMENT');
+      if (role.requiresScope && input.scopeRef == null && input.scopeResource == null) {
+        abort('SCOPE_REQUIRED');
+      }
+      let scopeRef = input.scopeRef ?? null;
+      if (input.scopeResource != null) {
+        if (typeof deps.assignments.resolveResource !== 'function') abort('SCOPE_RESOLVER_REQUIRED');
+        scopeRef = (await deps.assignments.resolveResource(input.scopeResource, input.roleId, tx)).scopeRef;
+      }
+      const auth = { actorId, operation: ACTION.assign,
+        targetUserId: input.targetUserId, roleId: input.roleId, scopeRef };
+      if (!await permitted(auth, tx)) abort('AUTHORITY_REQUIRED');
       const validity = dates(input, role, at);
       if (!validity) abort('INVALID_VALIDITY');
       const key = { targetUserId: input.targetUserId, roleId: input.roleId,
-        scopeRef: input.scopeRef ?? null, validFrom: validity.validFrom, validUntil: validity.validUntil };
+        scopeRef, validFrom: validity.validFrom, validUntil: validity.validUntil };
       if (await deps.assignments.hasEquivalent(key, tx) !== false) abort('DUPLICATE_ASSIGNMENT');
 
       const change = { action: 'assign', targetUserId: input.targetUserId, roleId: input.roleId,
-        scopeRef: input.scopeRef ?? null, validFrom: validity.validFrom, validUntil: validity.validUntil,
+        scopeRef, validFrom: validity.validFrom, validUntil: validity.validUntil,
         requestedBy: actorId, requestedAt: new Date(at).toISOString(), reason: input.reason.trim() };
       if (role.classification === 'privileged') {
         if (await deps.changeRequests.hasEquivalentPending(change, tx) !== false) abort('DUPLICATE_REQUEST');
@@ -175,21 +190,49 @@ export function createRoleAssignmentService(deps = {}) {
           status: 'pending_approval', expiresAt: new Date(at + deps.approvalWindowMs).toISOString() }, tx);
         if (!saved || saved.requestId !== requestId || saved.status !== 'pending_approval') abort('PERSISTENCE_FAILED');
         await audit({ action: 'role_assignment_requested', actorType: 'user', requestId, actorId,
-          targetUserId: input.targetUserId, roleId: input.roleId, scopeRef: input.scopeRef ?? null,
+          targetUserId: input.targetUserId, roleId: input.roleId, scopeRef,
           reason: input.reason.trim(), occurredAt: new Date(at).toISOString() }, tx);
         return { ok: true, result: 'pending_approval', requestId };
       }
 
       const assignment = await createAssignment({
-        userId: input.targetUserId, roleId: input.roleId, scopeRef: input.scopeRef ?? null,
+        userId: input.targetUserId, roleId: input.roleId, scopeRef,
         ...validity, createdBy: actorId, createdAt: new Date(at).toISOString(),
         reason: input.reason.trim()
       }, tx);
       await audit({ action: 'role_assigned', assignmentId: assignment.assignmentId,
         actorType: 'user', actorId, targetUserId: input.targetUserId, roleId: input.roleId,
-        scopeRef: input.scopeRef ?? null, reason: input.reason.trim(),
+        scopeRef, reason: input.reason.trim(),
         occurredAt: new Date(at).toISOString() }, tx);
       return { ok: true, result: validity.status, assignmentId: assignment.assignmentId };
+    });
+  }
+
+  async function listAssignableResources(actorContext, input = {}) {
+    if (!available) return fail('DEPENDENCIES_UNAVAILABLE');
+    const actorId = actorContext?.actorId;
+    const {targetUserId, roleId} = input;
+    if (![actorId, targetUserId, roleId].every(validId)) return fail('INVALID_IDENTIFIER');
+    if (normalizedId(actorId) === normalizedId(targetUserId)) return {ok: true, resources: []};
+    return transact(async (tx) => {
+      const role = await getRole(roleId, tx);
+      if (role.requiresScope !== true) return {ok: true, resources: []};
+      if (typeof deps.assignments.listResourcesForRole !== 'function') abort('SCOPE_RESOLVER_REQUIRED');
+      const resources = await deps.assignments.listResourcesForRole(roleId, tx);
+      const availableResources = [];
+      for (const resource of resources) {
+        if (await permitted({actorId, operation: ACTION.assign, targetUserId, roleId,
+          scopeRef: resource.scopeRef}, tx)) {
+          availableResources.push({
+            type: resource.resourceType,
+            id: resource.resourceId,
+            name: resource.resourceName,
+            planId: resource.planId,
+            planName: resource.planName
+          });
+        }
+      }
+      return {ok: true, resources: availableResources};
     });
   }
 
@@ -206,6 +249,7 @@ export function createRoleAssignmentService(deps = {}) {
       // Preview reads are non-locking. Acquire the role lock first, then re-read
       // and compare the assignment before authorization or any assignment lock/write.
       const role = await getRole(preview.roleId, tx);
+      if (role.name === 'scope_authority_manager') abort('PROTECTED_SCOPE_AUTHORITY_ASSIGNMENT');
       const assignment = await deps.assignments.getById(input.assignmentId, tx);
       if (!assignment || !sameAssignmentSnapshot(preview, assignment)) abort('ASSIGNMENT_CHANGED');
       if (!['active', 'scheduled'].includes(statusOf(assignment, at))) abort('ASSIGNMENT_NOT_REVOCABLE');
@@ -372,7 +416,7 @@ export function createRoleAssignmentService(deps = {}) {
   }
 
   return {
-    assignRole, revokeRole, decideChange,
+    assignRole, listAssignableResources, revokeRole, decideChange,
     getAssignmentStatus(assignment, at = deps.clock?.now?.()) {
       const ms = instant(at);
       return ms === null ? null : statusOf(assignment, ms);

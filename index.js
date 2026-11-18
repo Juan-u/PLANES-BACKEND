@@ -5,6 +5,7 @@ import 'dotenv/config';
 import express from 'express';
 import {runtimePort} from './app/config/runtime.js';
 import {railwayConfiguration, verifyEvidenceVolume} from './app/config/railway-profile.js';
+import { verifyRolePermissionSchema } from './app/config/role-permission-schema.js';
 import { randomUUID } from 'node:crypto';
 import pool from './app/config/db.js';
 import routeAuth from './app/routes/routes.auth.js';
@@ -23,6 +24,10 @@ import { createEvidenceStorage } from './app/services/evidence-storage.service.j
 
 const app = express();
 const railway = railwayConfiguration();
+const productionRolePermissionRoutesEnabled = railway !== null &&
+  process.env.NODE_ENV === 'production' &&
+  process.env.ENABLE_ROLE_PERMISSION_ROUTES === 'true' &&
+  process.env.ENABLE_ROLE_PERMISSION_ADMINISTRATION === 'true';
 if (railway) {
   await verifyEvidenceVolume();
   app.disable('x-powered-by');
@@ -35,6 +40,9 @@ if (railway) {
     } catch { res.status(503).json({status: 'unavailable'}); }
   });
 }
+if (productionRolePermissionRoutesEnabled) {
+  await verifyRolePermissionSchema(pool);
+}
 app.use(express.json());
 app.use('/api', routeAuth);
 
@@ -46,19 +54,21 @@ app.use('/api', createUsuarioRouter({ requirePermission }));
 const ids = Object.freeze({ next: randomUUID });
 const clock = Object.freeze({ now: () => new Date() });
 let administration = null;
-// A self-only read endpoint supports local UI capability filtering. It is not
-// mounted in production and cannot modify role or permission data.
-if (process.env.NODE_ENV !== 'production') {
+// Role administration stays disabled by default in production. Its explicit
+// production opt-in is validated against the Railway target and installed schema.
+if (process.env.NODE_ENV !== 'production' || productionRolePermissionRoutesEnabled) {
   administration = createRoleAdministrationComposition({ pool, ids, clock });
-  app.use('/api', createRoleCapabilitiesRouter({ service: administration.service }));
+  if (process.env.NODE_ENV !== 'production') {
+    app.use('/api', createRoleCapabilitiesRouter({ service: administration.service }));
+  }
   app.use('/api', createRoleAdministrationRouter({ service: administration.service }));
 }
 
-// Role assignments remain opt-in for local/staging validation. Production
-// refuses startup with this flag, and the database migration is never applied here.
+// Role assignments require explicit non-production opt-in or the separately
+// confirmed production activation validated before the routers are mounted.
 if (process.env.ENABLE_ROLE_PERMISSION_ROUTES === 'true') {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('Role-permission routes must remain disabled in production.');
+  if (process.env.NODE_ENV === 'production' && !productionRolePermissionRoutesEnabled) {
+    throw new Error('Production role-permission activation was not validated.');
   }
   const approvalWindowMs = Number(process.env.ROLE_APPROVAL_WINDOW_MS);
   if (!Number.isSafeInteger(approvalWindowMs) || approvalWindowMs <= 0) {

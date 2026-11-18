@@ -37,7 +37,7 @@ test('authorizes only when the query confirms a direct active permission assignm
   const result = await createAuthorizationRepository({ mutex: testMutex }).canManageRole(BASE, tx);
   assert.equal(result, true);
   assertCoreAuthorizationPredicates(calls[0].sql);
-  assert.deepEqual(calls[0].params, ['assign-role', 7, 11]);
+  assert.deepEqual(calls[0].params, ['assign-role', 7, 11, 'assign-role']);
 });
 
 test('canAccess checks an exact module permission against a current assigned role', async () => {
@@ -134,7 +134,21 @@ test('requires exact scope equality and denies a mismatched scope', async () => 
   assert.equal(await createAuthorizationRepository({ mutex: testMutex }).canManageRole(context, tx), false);
   assert.match(calls[0].sql, /BINARY requested_scope\.ref_value = BINARY \?/);
   assert.match(calls[0].sql, /requested_scope\.id_scope_ref = manager_assignment\.id_scope_ref/);
-  assert.deepEqual(calls[0].params, ['assign-role', 7, 11, 'string', 'Dept A']);
+  assert.match(calls[0].sql, /BINARY permission\.codigo = BINARY 'M01\.roles\.manage'/);
+  assert.match(calls[0].sql, /FROM rol_scope_recurso AS typed_resource/);
+  assert.deepEqual(calls[0].params, ['assign-role', 7, 11, 'assign-role', 'string', 'Dept A']);
+});
+
+test('global role management applies only to ordinary, non-authority roles on typed resources', async () => {
+  const {tx, calls} = makeTx(0);
+  await createAuthorizationRepository({mutex: testMutex}).canManageRole(
+    {...BASE, scopeRef: 'plan-scope'}, tx);
+  const sql = calls[0].sql;
+  assert.match(sql, /BINARY permission\.codigo = BINARY 'M01\.roles\.manage'/);
+  assert.match(sql, /target_config\.clasificacion_privilegio = 'ordinary'/);
+  assert.match(sql, /target_role\.nombre_rol <> BINARY 'scope_authority_manager'/);
+  assert.match(sql, /typed_resource\.id_scope_ref = requested_scope\.id_scope_ref/);
+  assert.match(sql, /manager_assignment\.id_scope_ref IS NULL/);
 });
 
 test('keeps numeric and textual scope references distinct', async () => {
@@ -142,7 +156,7 @@ test('keeps numeric and textual scope references distinct', async () => {
   const { tx, calls } = makeTx(1);
   await repo.canManageRole({ ...BASE, scopeRef: 12 }, tx);
   await repo.canManageRole({ ...BASE, scopeRef: '12' }, tx);
-  assert.deepEqual(calls.map((x) => x.params.slice(3)), [['number', '12'], ['string', '12']]);
+  assert.deepEqual(calls.map((x) => x.params.slice(4)), [['number', '12'], ['string', '12']]);
 });
 
 test('denies when the permission is absent or inactive', async () => {
@@ -186,7 +200,7 @@ test('uses the same request key for its approval decision', async () => {
   assert.equal(await createAuthorizationRepository({ mutex: testMutex }).canManageRole(context, tx), true);
   assert.match(calls[0].sql, /approval_decision\.id_solicitud = approved_request\.id_solicitud/);
   assert.match(calls[0].sql, /approval_request\.estado = 'pending_approval'/);
-  assert.equal(calls[0].params[3], context.requestId);
+  assert.equal(calls[0].params[4], context.requestId);
 });
 
 test('does not activate or consult delegations', async () => {
@@ -205,7 +219,7 @@ test('binds revocation authorization to the target assignment', async () => {
   assert.match(calls[0].sql, /target_assignment\.id_asignacion = \?/);
   assert.match(calls[0].sql, /target_assignment\.id_usuario = \?/);
   assert.match(calls[0].sql, /target_assignment\.id_rol = \?/);
-  assert.deepEqual(calls[0].params.slice(3), [context.assignmentId, 22, 7]);
+  assert.deepEqual(calls[0].params.slice(4), [context.assignmentId, 22, 7]);
 });
 
 test('denies unknown or structurally incomplete authorization contexts', async () => {

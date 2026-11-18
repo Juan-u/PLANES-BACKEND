@@ -50,7 +50,8 @@ export function createRoleCatalogRepository({ mutex } = {}) {
       const result = await tx.execute(
         `SELECT
            r.id_rol,
-           rc.clasificacion_privilegio,
+          r.nombre_rol,
+          rc.clasificacion_privilegio,
            rc.permite_vigencia_indefinida,
            rc.requiere_ambito
          FROM rol AS r
@@ -75,6 +76,7 @@ export function createRoleCatalogRepository({ mutex } = {}) {
       return Object.freeze({
         // Preserve the caller's representation because the service compares role.id strictly to roleId.
         id: roleId,
+        name: row.nombre_rol,
         classification: row.clasificacion_privilegio ?? null,
         allowOpenEndedAssignment: nullableBoolean(row.permite_vigencia_indefinida),
         requiresScope: nullableBoolean(row.requiere_ambito)

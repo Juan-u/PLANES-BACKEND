@@ -1,5 +1,5 @@
 const MODULE_OPERATIONS = Object.freeze({
-  M01: { users: ['read', 'create', 'update', 'deactivate'], roles: ['read', 'manage'], permissions: ['read', 'manage'], assignments: ['read'], requests: ['read'] },
+  M01: { users: ['read', 'create', 'update', 'deactivate'], roles: ['read', 'manage', 'manage_scope'], permissions: ['read', 'manage'], assignments: ['read'], requests: ['read'] },
   M02: { catalog: ['read', 'manage'] },
   M03: { plans: ['read', 'create', 'update', 'submit', 'approve', 'archive'] },
   M04: { activities: ['read', 'create', 'update', 'assign', 'close'] },
@@ -22,11 +22,13 @@ const p = (...entries) => entries.flatMap(([module, resource, operations]) =>
 const allPermissions = Object.freeze(Object.entries(MODULE_OPERATIONS).flatMap(([module, resources]) =>
   Object.entries(resources).flatMap(([resource, operations]) =>
     operations.map((operation) => `${module}.${resource}.${operation}`))));
+const globalPermissions = Object.freeze(allPermissions.filter((code) => code !== 'M01.roles.manage_scope'));
+const ROLE_OPERATIONS = ['assign-role', 'revoke-role', 'approve-role-change'];
 
 // ASUMIDO: los documentos definen M01-M16 pero aún no nombran roles operativos.
 // Estos perfiles son una configuración inicial explícita, revisable y no se insertan automáticamente.
 const ROLE_ROWS = [
-  ['system_administrator', 'Administración total del sistema', 'privileged', false, true, allPermissions],
+  ['system_administrator', 'Administración total del sistema', 'privileged', false, true, globalPermissions],
   ['technology_administrator', 'Administración de usuarios, catálogos y seguridad', 'privileged', false, true,
     p(['M01','users',['read','create','update','deactivate']],['M01','roles',['read']],['M01','permissions',['read']],['M01','assignments',['read']],['M01','requests',['read']],['M02','catalog',['read','manage']],['M12','reports',['read','export']],['M15','audit',['read','export']],['M16','security',['read']])],
   ['planning_coordinator', 'Coordinación de planeación y consolidación', 'ordinary', true, false,
@@ -40,7 +42,9 @@ const ROLE_ROWS = [
   ['collaborator', 'Colaboración en actividades asignadas', 'ordinary', true, false,
     p(['M04','activities',['read','update']],['M05','followup',['read','create','update']],['M06','milestones',['read']],['M07','indicators',['read']],['M13','evidence',['read','upload']],['M14','notifications',['read']])],
   ['auditor', 'Consulta de trazabilidad y reportes', 'ordinary', true, false,
-    p(['M01','users',['read']],['M01','roles',['read']],['M01','permissions',['read']],['M01','assignments',['read']],['M01','requests',['read']],['M12','reports',['read','export']],['M15','audit',['read','export']],['M16','security',['read']])]
+    p(['M01','users',['read']],['M01','roles',['read']],['M01','permissions',['read']],['M01','assignments',['read']],['M01','requests',['read']],['M12','reports',['read','export']],['M15','audit',['read','export']],['M16','security',['read']])],
+  ['scope_authority_manager', 'Gestión institucional de roles dentro de un ámbito autorizado', 'ordinary', true, false,
+    ['M01.roles.manage_scope', ...ROLE_OPERATIONS]]
 ].map(([code, description, classification, requiresScope, allowOpenEnded, permissions]) => Object.freeze({
   code, description, classification, requiresScope, allowOpenEnded, permissions: Object.freeze(permissions)
 }));

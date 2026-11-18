@@ -14,6 +14,7 @@ test('derives actor only from verified request state and whitelists assign paylo
   let call;
   const controller = createRoleAssignmentController({
     async assignRole(actor, payload) { call = { actor, payload }; return { ok: true, result: 'active', assignmentId: 'id' }; },
+    async listAssignableResources() { return { ok: true, resources: [] }; },
     async revokeRole() {}, async decideChange() {}
   });
   const res = response();
@@ -27,7 +28,9 @@ test('derives actor only from verified request state and whitelists assign paylo
 test('rejects a request without verified identity and does not call the service', async () => {
   let called = false;
   const controller = createRoleAssignmentController({
-    async assignRole() { called = true; return { ok: true }; }, async revokeRole() {}, async decideChange() {}
+    async assignRole() { called = true; return { ok: true }; },
+    async listAssignableResources() { return { ok: true, resources: [] }; },
+    async revokeRole() {}, async decideChange() {}
   });
   const res = response();
   await controller.assign({ body: { actorId: 19 } }, res);
@@ -39,6 +42,7 @@ test('validates database IDs, UUID path parameters, decisions and reasons before
   let calls = 0;
   const controller = createRoleAssignmentController({
     async assignRole() { calls += 1; return { ok: true }; },
+    async listAssignableResources() { return { ok: true, resources: [] }; },
     async revokeRole() { calls += 1; return { ok: true }; },
     async decideChange() { calls += 1; return { ok: true }; }
   });
@@ -63,6 +67,7 @@ test('validates database IDs, UUID path parameters, decisions and reasons before
 test('maps service denials without exposing thrown persistence details', async () => {
   const controller = createRoleAssignmentController({
     async assignRole() { return { ok: false, code: 'AUTHORITY_REQUIRED' }; },
+    async listAssignableResources() { return { ok: true, resources: [] }; },
     async revokeRole() { throw new Error('database diagnostic'); }, async decideChange() {}
   });
   const denied = response();
@@ -78,6 +83,7 @@ test('maps revocation and approval/rejection requests through the same trusted a
   const calls = [];
   const controller = createRoleAssignmentController({
     async assignRole() {},
+    async listAssignableResources(actor, payload) { calls.push({ operation: 'resources', actor, payload }); return { ok: true, resources: [] }; },
     async revokeRole(actor, payload) { calls.push({ operation: 'revoke', actor, payload }); return { ok: true, result: 'revoked' }; },
     async decideChange(actor, payload) { calls.push({ operation: payload.decision, actor, payload }); return { ok: true, result: payload.decision }; }
   });
@@ -99,7 +105,26 @@ test('maps revocation and approval/rejection requests through the same trusted a
   assert.deepEqual([revokeResponse.statusCode, approveResponse.statusCode, rejectResponse.statusCode], [200, 200, 200]);
 });
 
-test('router uses the production JWT middleware and exposes only the three service operations', () => {
+test('lists resources from verified actor state and validates target and role IDs', async () => {
+  let call;
+  const controller = createRoleAssignmentController({
+    async assignRole() {},
+    async listAssignableResources(actor, payload) {
+      call = { actor, payload };
+      return { ok: true, resources: [{ type: 'plan', id: 1 }] };
+    },
+    async revokeRole() {}, async decideChange() {}
+  });
+  const valid = response();
+  await controller.listAssignableResources({ usuario: { sub: '29' }, query: { targetUserId: '3', roleId: '8' } }, valid);
+  assert.deepEqual(call, { actor: { actorId: 29 }, payload: { targetUserId: '3', roleId: '8' } });
+  assert.deepEqual([valid.statusCode, valid.body], [200, { ok: true, resources: [{ type: 'plan', id: 1 }] }]);
+  const invalid = response();
+  await controller.listAssignableResources({ usuario: { sub: '29' }, query: { targetUserId: '0', roleId: '8' } }, invalid);
+  assert.deepEqual([invalid.statusCode, invalid.body.code], [400, 'INVALID_IDENTIFIER']);
+});
+
+test('router uses the production JWT middleware for resource lookup and mutations', () => {
   const dependencies = createRoleAssignmentComposition({
     pool: { async getConnection() { throw new Error('Router creation must not connect.'); } },
     clock: { now: () => new Date('2026-10-30T10:00:00.000Z') },
@@ -109,7 +134,7 @@ test('router uses the production JWT middleware and exposes only the three servi
     /protected role-assignment composition/);
   const router = createRoleAssignmentRouter({ service: dependencies.service });
   assert.deepEqual(router.stack.map((layer) => layer.route.path), [
-    '/roles/asignaciones', '/roles/asignaciones/:assignmentId/revocacion',
+    '/roles/asignacion-recursos', '/roles/asignaciones', '/roles/asignaciones/:assignmentId/revocacion',
     '/roles/solicitudes/:requestId/decision'
   ]);
   assert.ok(router.stack.every((layer) => typeof layer.route.stack[0].handle === 'function'));

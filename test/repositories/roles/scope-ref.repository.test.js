@@ -114,3 +114,63 @@ test('requires and uses only the transaction passed by the caller', async () => 
   await repository.resolveForRole(12, 7, tx);
   assert.equal(calls, 1);
 });
+
+test('resolves a plan by typed ID and returns its real name', async () => {
+  const { tx, calls } = makeTx([{
+    id_scope_ref: 52, ref_value: 'scope-ref', activo: 1, allowed_role_id: 7,
+    tipo_recurso: 'plan', id_plan: 3, id_actividad: null,
+    plan_name: 'Plan institucional', resource_name: 'Plan institucional'
+  }]);
+  const result = await createScopeRefRepository({ mutex: testMutex })
+    .resolveResourceForRole({ type: 'plan', id: 3 }, 7, tx);
+
+  assert.deepEqual(result, {
+    idScopeRef: 52, scopeRef: 'scope-ref', resourceType: 'plan',
+    resourceId: 3, resourceName: 'Plan institucional', planId: 3, planName: 'Plan institucional'
+  });
+  assert.deepEqual(calls[0].params, [7, 'plan', 3, 3]);
+  assert.match(calls[0].sql, /CASE WHEN scoped_resource\.tipo_recurso = 'plan' THEN plan\.nombre/);
+});
+
+test('resolves activities with their owning plan and rejects inactive or unauthorized resources', async () => {
+  const repository = createScopeRefRepository({ mutex: testMutex });
+  const activityRow = {
+    id_scope_ref: 53, ref_value: 'scope-activity', activo: 1, allowed_role_id: 7,
+    tipo_recurso: 'activity', id_plan: 3, id_actividad: 9,
+    plan_name: 'Plan institucional', resource_name: 'Actividad institucional'
+  };
+  const { tx } = makeTx([activityRow]);
+  const result = await repository.resolveResourceForRole({ type: 'activity', id: 9 }, 7, tx);
+  assert.equal(result.resourceName, 'Actividad institucional');
+  assert.equal(result.planId, 3);
+  assert.equal(result.planName, 'Plan institucional');
+
+  for (const [overrides, code] of [
+    [{ activo: 0 }, 'SCOPE_REFERENCE_INACTIVE'],
+    [{ allowed_role_id: null }, 'SCOPE_NOT_ALLOWED_FOR_ROLE']
+  ]) {
+    const denied = makeTx([{ ...activityRow, ...overrides }]);
+    await assert.rejects(repository.resolveResourceForRole({ type: 'activity', id: 9 }, 7, denied.tx),
+      (error) => error.code === code);
+  }
+});
+
+test('lists only active, role-enabled typed resources with plan and activity labels', async () => {
+  const rows = [
+    { scope_ref: 'plan-scope', tipo_recurso: 'plan', id_plan: 3, id_actividad: null,
+      resource_name: 'Plan institucional', plan_name: 'Plan institucional' },
+    { scope_ref: 'activity-scope', tipo_recurso: 'activity', id_plan: 3, id_actividad: 9,
+      resource_name: 'Actividad institucional', plan_name: 'Plan institucional' }
+  ];
+  const { tx, calls } = makeTx(rows);
+  const result = await createScopeRefRepository({ mutex: testMutex }).listResourcesForRole(7, tx);
+  assert.deepEqual(result, [
+    { scopeRef: 'plan-scope', resourceType: 'plan', resourceId: 3,
+      resourceName: 'Plan institucional', planId: 3, planName: 'Plan institucional' },
+    { scopeRef: 'activity-scope', resourceType: 'activity', resourceId: 9,
+      resourceName: 'Actividad institucional', planId: 3, planName: 'Plan institucional' }
+  ]);
+  assert.deepEqual(calls[0].params, [7]);
+  assert.match(calls[0].sql, /JOIN rol_scope_permitido AS permitted/);
+  assert.match(calls[0].sql, /WHERE sr\.activo = 1/);
+});

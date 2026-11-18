@@ -78,6 +78,18 @@ export function createAssignmentsRepository({ scopeRefs, mutex } = {}) {
     if (!ref || !Number.isSafeInteger(ref.idScopeRef) || ref.idScopeRef < 1 || ref.scopeRef !== scopeRef) fail('SCOPE_REFERENCE_MISMATCH', 'The scope resolver returned an invalid or changed reference.');
     return ref;
   }
+  async function resolveResource(resource, roleId, tx) {
+    if (!scopeRefs || typeof scopeRefs.resolveResourceForRole !== 'function') {
+      fail('SCOPE_RESOLVER_REQUIRED', 'Typed resource scope resolver is required.');
+    }
+    const ref = await scopeRefs.resolveResourceForRole(resource, roleId, tx);
+    if (!ref || !Number.isSafeInteger(ref.idScopeRef) || ref.idScopeRef < 1 ||
+        typeof ref.scopeRef !== 'string' || ref.resourceType !== resource.type ||
+        ref.resourceId !== Number(resource.id)) {
+      fail('SCOPE_RESOURCE_MISMATCH', 'The resource resolver returned a mismatched scope.');
+    }
+    return ref;
+  }
   async function configFor(roleId, tx) {
     const found = rows(await tx.execute(
       `SELECT clasificacion_privilegio, permite_vigencia_indefinida, requiere_ambito FROM rol_configuracion WHERE id_rol = ? LIMIT 1`, [roleId]));
@@ -116,6 +128,17 @@ export function createAssignmentsRepository({ scopeRefs, mutex } = {}) {
       revokedAt: a.revocado_en == null ? null : fromSqlDate(a.revocado_en, 'revocado_en'), revocationReason: a.motivo_revocacion ?? null };
   }
   return Object.freeze({
+    async resolveResource(resource, roleId, tx) {
+      txRequired(tx, mutex);
+      return resolveResource(resource, roleId, tx);
+    },
+    async listResourcesForRole(roleId, tx) {
+      txRequired(tx, mutex);
+      if (!scopeRefs || typeof scopeRefs.listResourcesForRole !== 'function') {
+        fail('SCOPE_RESOLVER_REQUIRED', 'Typed resource scope resolver is required.');
+      }
+      return scopeRefs.listResourcesForRole(roleId, tx);
+    },
     async hasEquivalent(key, tx) {
       txRequired(tx, mutex);
       if (!key || typeof key !== 'object') fail('INVALID_ASSIGNMENT', 'Assignment key is required.');

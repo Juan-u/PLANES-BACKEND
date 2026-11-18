@@ -5,6 +5,27 @@ import {
   validateProductionApplicationDatabase
 } from '../../deployment/railway/production-policy.js';
 
+export const PRODUCTION_ROLE_PERMISSION_CONFIRMATION =
+  'ENABLE_PRODUCTION_ROLE_ADMIN_AND_ASSIGNMENT_ROUTES';
+
+function validateProductionRolePermissionActivation(env) {
+  const assignmentFlag = env.ENABLE_ROLE_PERMISSION_ROUTES ?? 'false';
+  const administrationFlag = env.ENABLE_ROLE_PERMISSION_ADMINISTRATION ?? 'false';
+  if (!['true', 'false'].includes(assignmentFlag) ||
+      !['true', 'false'].includes(administrationFlag)) {
+    throw new Error('Configuración del perfil Railway production no válida.');
+  }
+  if (assignmentFlag === 'false' && administrationFlag === 'false') return false;
+
+  const approvalWindowMs = Number(env.ROLE_APPROVAL_WINDOW_MS);
+  if (assignmentFlag !== 'true' || administrationFlag !== 'true' ||
+      env.ROLE_PERMISSION_PRODUCTION_CONFIRMATION !== PRODUCTION_ROLE_PERMISSION_CONFIRMATION ||
+      !Number.isSafeInteger(approvalWindowMs) || approvalWindowMs <= 0) {
+    throw new Error('Activación de roles de producción incompleta.');
+  }
+  return true;
+}
+
 export function railwayConfiguration(env = process.env) {
   if (!env.DEPLOYMENT_PROFILE) return null;
   if (env.DEPLOYMENT_PROFILE === 'railway-private-test') {
@@ -19,8 +40,8 @@ export function railwayConfiguration(env = process.env) {
     throw new Error('Perfil Railway desconocido.');
   }
   const target = validateProductionApplicationDatabase(env);
-  if (env.ENABLE_ROLE_PERMISSION_ROUTES === 'true' ||
-      env.EVIDENCE_STORAGE_DIR !== '/data/evidence' ||
+  validateProductionRolePermissionActivation(env);
+  if (env.EVIDENCE_STORAGE_DIR !== '/data/evidence' ||
       env.RAILWAY_VOLUME_MOUNT_PATH !== '/data/evidence') {
     throw new Error('Configuración del perfil Railway production no válida.');
   }

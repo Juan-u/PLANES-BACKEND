@@ -14,6 +14,11 @@ export function createRoleAdministrationRouter({ service } = {}) {
   router.get('/roles/permisos', verificarToken, controller.listPermissions);
   router.get('/roles/solicitudes', verificarToken, controller.listRequests);
   router.get('/roles/usuarios/:userId/asignaciones', verificarToken, controller.listAssignments);
+  router.get('/roles/ambitos/recursos', verificarToken, controller.listScopeResources);
+  router.get('/roles/autoridad-inicial/solicitudes', verificarToken, controller.listInitialScopeAuthorityRequests);
+  router.post('/roles/autoridad-inicial/solicitudes', verificarToken, controller.requestInitialScopeAuthority);
+  router.post('/roles/autoridad-inicial/solicitudes/:requestId/decision', verificarToken, controller.decideInitialScopeAuthority);
+  router.post('/roles/ambitos/recursos', verificarToken, controller.enableScopeResource);
   router.post('/roles/catalogo', verificarToken, controller.createRole);
   router.put('/roles/catalogo/:roleId/configuracion', verificarToken, controller.updateRoleConfiguration);
   router.put('/roles/catalogo/:roleId/permisos', verificarToken, controller.setRolePermissions);

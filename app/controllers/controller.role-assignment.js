@@ -4,18 +4,21 @@ const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 const STATUS_BY_CODE = new Map([
   ['INVALID_IDENTIFIER', 400], ['INVALID_DECISION', 400],
   ['INVALID_VALIDITY', 400], ['INVALID_SCOPE_REFERENCE', 400],
+  ['INVALID_SCOPE_RESOURCE', 400],
   ['INVALID_ROLE_ID', 400], ['SCOPE_REQUIRED', 400],
   ['REASON_REQUIRED', 400], ['SELF_ASSIGNMENT_DENIED', 400],
   ['AUTHORITY_REQUIRED', 403], ['REQUESTER_AUTHORITY_REVOKED', 403],
   ['SCOPE_REFERENCE_INACTIVE', 403], ['SCOPE_NOT_ALLOWED_FOR_ROLE', 403],
   ['SCOPE_REFERENCE_NOT_FOUND', 422], ['SCOPE_REFERENCE_MISMATCH', 422],
+  ['SCOPE_RESOURCE_NOT_FOUND', 422], ['SCOPE_RESOURCE_MISMATCH', 422],
+  ['SCOPE_RESOURCE_AMBIGUOUS', 422],
   ['ASSIGNMENT_NOT_FOUND', 404], ['REQUEST_NOT_FOUND', 404],
   ['DUPLICATE_ASSIGNMENT', 409], ['DUPLICATE_REQUEST', 409],
   ['ASSIGNMENT_CHANGED', 409], ['REQUEST_CHANGED', 409],
   ['REQUEST_NOT_PENDING', 409], ['REQUEST_NOT_REVOCABLE', 409],
   ['REQUEST_EXPIRED', 409], ['ASSIGNMENT_NOT_REVOCABLE', 409],
   ['REQUEST_VALIDITY_INVALID', 409], ['REQUEST_ACTION_INVALID', 409],
-  ['APPROVAL_REQUIRED', 409],
+  ['APPROVAL_REQUIRED', 409], ['PROTECTED_SCOPE_AUTHORITY_ASSIGNMENT', 403],
   ['ROLE_CLASSIFICATION_REQUIRED', 503], ['ROLE_CONFIGURATION_REQUIRED', 503],
   ['VALIDITY_POLICY_REQUIRED', 503], ['DEPENDENCIES_UNAVAILABLE', 503],
   ['PERSISTENCE_FAILED', 503], ['CLOCK_UNAVAILABLE', 503],
@@ -54,9 +57,11 @@ function databaseId(value) {
   return Number.isSafeInteger(number) && number > 0 && number <= MAX_SIGNED_INT;
 }
 
-function validScopeRef(value) {
-  if (typeof value === 'number') return Number.isSafeInteger(value) && value > 0;
-  return typeof value === 'string' && value.trim() !== '';
+function validScopeResource(value) {
+  return bodyObject(value) &&
+    ['plan', 'activity'].includes(value.type) &&
+    databaseId(value.id) &&
+    Object.keys(value).every((key) => ['type', 'id'].includes(key));
 }
 
 function validReason(value) {
@@ -70,6 +75,7 @@ function invalid(res, code) {
 /** HTTP adapter only. The caller must run a trusted authenticator before handlers. */
 export function createRoleAssignmentController(service) {
   if (!service || typeof service.assignRole !== 'function' ||
+      typeof service.listAssignableResources !== 'function' ||
       typeof service.revokeRole !== 'function' || typeof service.decideChange !== 'function') {
     throw new TypeError('A complete role-assignment service is required.');
   }
@@ -87,11 +93,22 @@ export function createRoleAssignmentController(service) {
       const actor = actorFromVerifiedRequest(req);
       if (!actor) return res.status(401).json({ ok: false, code: 'AUTHENTICATION_REQUIRED' });
       if (!bodyObject(req.body)) return invalid(res, 'INVALID_REQUEST_BODY');
-      const payload = only(req.body, ['targetUserId', 'roleId', 'scopeRef', 'validFrom', 'validUntil', 'reason']);
+      const payload = only(req.body, ['targetUserId', 'roleId', 'scopeResource', 'validFrom', 'validUntil', 'reason']);
       if (!databaseId(payload.targetUserId) || !databaseId(payload.roleId)) return invalid(res, 'INVALID_IDENTIFIER');
-      if (payload.scopeRef != null && !validScopeRef(payload.scopeRef)) return invalid(res, 'INVALID_SCOPE_REFERENCE');
+      if (payload.scopeResource != null && !validScopeResource(payload.scopeResource)) return invalid(res, 'INVALID_SCOPE_RESOURCE');
       if (!validReason(payload.reason)) return invalid(res, 'REASON_REQUIRED');
       return invoke(req, res, actor, service.assignRole.bind(service), payload, 201);
+    },
+    listAssignableResources(req, res) {
+      const actor = actorFromVerifiedRequest(req);
+      if (!actor) return res.status(401).json({ ok: false, code: 'AUTHENTICATION_REQUIRED' });
+      if (!databaseId(req.query?.targetUserId) || !databaseId(req.query?.roleId)) {
+        return invalid(res, 'INVALID_IDENTIFIER');
+      }
+      return invoke(req, res, actor, service.listAssignableResources.bind(service), {
+        targetUserId: req.query.targetUserId,
+        roleId: req.query.roleId
+      }, 200);
     },
     revoke(req, res) {
       const actor = actorFromVerifiedRequest(req);

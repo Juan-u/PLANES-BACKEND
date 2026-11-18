@@ -56,7 +56,7 @@ function makeDependencies(observed) {
       getById: async (id, tx) => {
         observed.roleId = id;
         observeTransaction('catalogTransaction')(tx);
-        return { id, classification: 'ordinary', allowOpenEndedAssignment: true };
+        return { id, classification: 'ordinary', allowOpenEndedAssignment: true, requiresScope: false };
       }
     },
     assignments: {

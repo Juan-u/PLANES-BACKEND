@@ -22,9 +22,12 @@ function harness(options = {}) {
     assertHeld: (tx) => rawMutex.assertHeld(tx)
   };
   const roles = new Map([
-    ['ordinary-a', { id: 'ordinary-a', classification: 'ordinary', allowOpenEndedAssignment: true }],
-    ['ordinary-b', { id: 'ordinary-b', classification: 'ordinary', allowOpenEndedAssignment: true }],
-    ['privileged', { id: 'privileged', classification: 'privileged', allowOpenEndedAssignment: false }],
+    ['ordinary-a', { id: 'ordinary-a', classification: 'ordinary', allowOpenEndedAssignment: true, requiresScope: false }],
+    ['ordinary-b', { id: 'ordinary-b', classification: 'ordinary', allowOpenEndedAssignment: true, requiresScope: false }],
+    ['scoped', { id: 'scoped', classification: 'ordinary', allowOpenEndedAssignment: true, requiresScope: true }],
+    ['scope-authority', { id: 'scope-authority', name: 'scope_authority_manager',
+      classification: 'ordinary', allowOpenEndedAssignment: false, requiresScope: true }],
+    ['privileged', { id: 'privileged', classification: 'privileged', allowOpenEndedAssignment: false, requiresScope: false }],
     ['unknown', { id: 'unknown', classification: null, allowOpenEndedAssignment: true }]
   ]);
   const assignments = new Map(), requests = new Map(), events = [];
@@ -47,6 +50,15 @@ function harness(options = {}) {
           const oldStart = Date.parse(a.validFrom), oldEnd = a.validUntil == null ? Infinity : Date.parse(a.validUntil);
           return start < oldEnd && oldStart < end;
         });
+      },
+      resolveResource: async (resource) => {
+        trace.push('resource-resolve');
+        if (options.resourceResolutionFailure) throw options.resourceResolutionFailure;
+        return { scopeRef: `${resource.type}:${resource.id}` };
+      },
+      listResourcesForRole: async () => {
+        trace.push('resource-list');
+        return options.resources ?? [];
       },
       create: async (a) => {
         trace.push('assignment-create');
@@ -191,6 +203,51 @@ test('denies operation without explicit authority and makes no writes', async ()
   assert.equal(r.code, 'AUTHORITY_REQUIRED');
   assert.equal(h.assignments.size, 0);
   assert.equal(h.events.length, 0);
+});
+
+test('prevents assigning the protected initial scope-authority role through the ordinary assignment route', async () => {
+  const h = harness();
+  const result = await h.service.assignRole({actorId: 1}, {
+    targetUserId: 2, roleId: 'scope-authority', scopeResource: {type: 'plan', id: 1},
+    reason: 'Must use the audited initial authority process'
+  });
+  assert.deepEqual(result, {ok: false, code: 'PROTECTED_SCOPE_AUTHORITY_ASSIGNMENT'});
+  assert.equal(h.assignments.size, 0);
+  assert.equal(h.trace.includes('authorization'), false);
+});
+
+test('requires a scope for scoped roles and resolves typed resources before authorization', async () => {
+  const h = harness();
+  const missingScope = await assign(h, input({ roleId: 'scoped', scopeRef: null }));
+  assert.equal(missingScope.code, 'SCOPE_REQUIRED');
+
+  const scopedAssignment = await assign(h, input({
+    roleId: 'scoped', scopeRef: null, scopeResource: { type: 'plan', id: 1 }
+  }));
+  assert.equal(scopedAssignment.result, 'active');
+  assert.equal([...h.assignments.values()][0].scopeRef, 'plan:1');
+  assert.ok(h.trace.indexOf('resource-resolve') < h.trace.indexOf('authorization'));
+  assert.equal(h.events[0].scopeRef, 'plan:1');
+});
+
+test('lists only typed resources where the actor has effective assignment authority', async () => {
+  const h = harness({
+    resources: [
+      { resourceType: 'plan', resourceId: 1, scopeRef: 'scope-plan-1', resourceName: 'Plan 1', planId: 1, planName: 'Plan 1' },
+      { resourceType: 'activity', resourceId: 9, scopeRef: 'scope-activity-9', resourceName: 'Actividad 9', planId: 1, planName: 'Plan 1' }
+    ],
+    permission: ({ scopeRef }) => scopeRef === 'scope-plan-1'
+  });
+  const result = await h.service.listAssignableResources({ actorId: 'operator-a' }, {
+    targetUserId: 'person-a', roleId: 'scoped'
+  });
+  assert.deepEqual(result.resources, [{
+    type: 'plan', id: 1, name: 'Plan 1', planId: 1, planName: 'Plan 1'
+  }]);
+  assert.ok(h.trace.includes('resource-list'));
+  assert.equal((await h.service.listAssignableResources({ actorId: 'operator-a' }, {
+    targetUserId: 'operator-a', roleId: 'scoped'
+  })).resources.length, 0);
 });
 
 test('rejects self-assignment', async () => {
@@ -382,7 +439,7 @@ test('revalidates requester authority and role classification at approval', asyn
 
   const h2 = harness(), id2 = await privilegedRequest(h2);
   h2.roles.set('privileged', {
-    id: 'privileged', classification: 'ordinary', allowOpenEndedAssignment: false
+    id: 'privileged', classification: 'ordinary', allowOpenEndedAssignment: false, requiresScope: false
   });
   const changed = await decide(h2, {
     actorId: 'operator-b', requestId: id2, decision: 'approve', reason: 'Approval'

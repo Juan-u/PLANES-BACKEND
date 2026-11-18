@@ -32,6 +32,10 @@ test('JWT -> router -> service -> protected repositories denies without configur
     async execute(sql, params) {
       sqlCalls.push({ sql, params });
       if (sql.includes('rol_autorizacion_mutex')) return [[{ mutex_id: 1 }], []];
+      if (sql.includes('FROM rol AS r')) return [[{
+        id_rol: 7, clasificacion_privilegio: 'ordinary',
+        permite_vigencia_indefinida: 1, requiere_ambito: 0
+      }], []];
       if (sql.includes('AS authorized')) return [[{ authorized: 0 }], []];
       throw new Error('Unexpected persistence operation in deny-by-default integration test.');
     }

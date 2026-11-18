@@ -160,7 +160,7 @@ export function createAuthorizationRepository({ mutex } = {}) {
       if (operation === 'revoke-role' && (assignmentId == null || requestId != null)) return false;
       if (operation === 'approve-role-change' && requestId == null) return false;
 
-      const params = [operation, targetRoleId, actorId];
+      const params = [operation, targetRoleId, actorId, operation];
       let scopePredicate;
       if (scope == null) {
         scopePredicate = `AND manager_assignment.id_scope_ref IS NULL
@@ -176,7 +176,18 @@ export function createAuthorizationRepository({ mutex } = {}) {
            WHERE requested_scope.ref_kind = ?
              AND BINARY requested_scope.ref_value = BINARY ?
              AND requested_scope.activo = 1
-             AND requested_scope.id_scope_ref = manager_assignment.id_scope_ref
+             AND (
+               requested_scope.id_scope_ref = manager_assignment.id_scope_ref
+               OR (
+                 BINARY permission.codigo = BINARY 'M01.roles.manage'
+                 AND manager_assignment.id_scope_ref IS NULL
+                 AND manager_config.requiere_ambito = 0
+                 AND EXISTS (
+                   SELECT 1 FROM rol_scope_recurso AS typed_resource
+                    WHERE typed_resource.id_scope_ref = requested_scope.id_scope_ref
+                 )
+               )
+             )
         )`;
         params.push(scope.kind, scope.value);
       }
@@ -234,10 +245,13 @@ export function createAuthorizationRepository({ mutex } = {}) {
            AND role_permission.activo = 1
           JOIN permiso AS permission
             ON permission.id_permiso = role_permission.id_permiso
-           AND BINARY permission.codigo = BINARY ?
+           AND (BINARY permission.codigo = BINARY ?
+             OR BINARY permission.codigo = BINARY 'M01.roles.manage')
            AND permission.activo = 1
           JOIN rol_configuracion AS target_config
             ON target_config.id_rol = ?
+          JOIN rol AS target_role
+            ON target_role.id_rol = target_config.id_rol
          WHERE manager_assignment.id_usuario = ?
            AND manager_assignment.estado IN ('active', 'scheduled')
            AND manager_assignment.vigente_desde <= UTC_TIMESTAMP(3)
@@ -246,6 +260,14 @@ export function createAuthorizationRepository({ mutex } = {}) {
            AND manager_config.requiere_ambito IN (0, 1)
            AND target_config.clasificacion_privilegio IN ('ordinary', 'privileged')
            AND target_config.requiere_ambito IN (0, 1)
+           AND (
+             BINARY permission.codigo = BINARY ?
+             OR (
+               BINARY permission.codigo = BINARY 'M01.roles.manage'
+               AND target_config.clasificacion_privilegio = 'ordinary'
+               AND BINARY target_role.nombre_rol <> BINARY 'scope_authority_manager'
+             )
+           )
            AND (manager_config.requiere_ambito = 0 OR manager_assignment.id_scope_ref IS NOT NULL)
            AND (
              manager_config.clasificacion_privilegio = 'ordinary'

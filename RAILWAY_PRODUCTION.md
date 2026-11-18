@@ -22,7 +22,8 @@ La base debe confirmarse vacía por una persona autorizada antes de iniciar.
   técnicas. DDL MySQL no es transaccional: un fallo exige detenerse e inspeccionar;
   no reintentar, no ejecutar `DOWN` ni restaurar automáticamente.
 - El Back-End requiere el volumen de evidencias montado en `/data/evidence`.
-  Mantiene `ENABLE_ROLE_PERMISSION_ROUTES=false` en producción. No habilitar esa
+  Mantiene desactivadas por defecto `ENABLE_ROLE_PERMISSION_ROUTES` y
+  `ENABLE_ROLE_PERMISSION_ADMINISTRATION` en producción. No habilitar esa
   superficie para resolver el inicio de sesión.
 - El Front-End requiere HTTPS público, Back-End en red privada y sesiones MySQL
   persistentes; no usa `MemoryStore` como fallback.
@@ -95,6 +96,50 @@ consultas que comprueban que `web_sessions` existe y está vacía, sin conceder 
 acceso a `planes_backend`. Después de ambos procedimientos,
 mantener `SESSION_DB_PASSWORD` como secreto del Front-End para abrir el store de
 sesiones y retirarla del Back-End. No volver a ejecutar el inicializador.
+
+## Activación futura de Roles y permisos en producción — no ejecutada
+
+Las rutas de administración y asignación siguen deshabilitadas en Railway. El
+código preparado permite una activación posterior, pero no la realiza. La
+activación requiere desplegar primero una versión revisada y aplicar por un
+procedimiento de cambio aprobado, en este orden, las migraciones versionadas
+`migrations/20261118_role_scope_resources.up.sql` y
+`migrations/20261119_initial_scope_authority.up.sql` en el destino de producción.
+No se deben migrar ámbitos antiguos por coincidencia de ID. Las migraciones no
+son parte del arranque del Back-End.
+
+Solo después de verificar en el destino el esquema completo, las claves foráneas,
+el mutex, la cuenta de aplicación y la cuenta de sesiones separada, podría
+aprobarse conjuntamente en el servicio Back-End:
+
+- `ENABLE_ROLE_PERMISSION_ADMINISTRATION=true`
+- `ENABLE_ROLE_PERMISSION_ROUTES=true`
+- `ROLE_PERMISSION_PRODUCTION_CONFIRMATION=ENABLE_PRODUCTION_ROLE_ADMIN_AND_ASSIGNMENT_ROUTES`
+- `ROLE_APPROVAL_WINDOW_MS` con una ventana positiva aprobada por el responsable.
+
+Sin los cuatro valores válidos, el Back-End rechaza el arranque. Con ellos,
+antes de montar rutas ejecuta solo lecturas de `information_schema` y comprueba
+las tablas/columnas requeridas, las relaciones/FK de los recursos tipados y de
+las nominaciones institucionales, la configuración del rol/permiso dedicado y la
+fila singleton del mutex. Después de ambas migraciones, el esquema de producción
+debe tener 46 tablas, 95 claves foráneas y 20 triggers, incluyendo
+`web_sessions`. Si una comprobación falla, no monta las rutas. No habilitar hasta
+que las migraciones y lecturas hayan sido validadas localmente y el cambio de
+producción esté aprobado. Las rutas conservan JWT, permisos efectivos,
+autorización por ámbito, motivo y auditoría transaccional. `M01.roles.manage`
+habilita a los administradores técnicos para asignaciones ordinarias solo en
+recursos tipados y habilitados; no concede roles privilegiados ni
+`M01.roles.manage_scope`. La primera autoridad
+institucional requiere una referencia documental verificada y dos
+administradores técnicos distintos; `M01.roles.manage` global no se convierte
+en autoridad de Plan. No se asigna autoridad automáticamente a Erick o Juan
+Esteban ni se asigna aún el rol Colaborador a Anderson. El endpoint de
+capacidades no se publica en producción.
+
+No ejecutar `DOWN` ni borrar tablas de estas migraciones mientras existan
+solicitudes, asignaciones o auditoría dependientes. La migración de autoridad no
+incluye reversión automática. La desactivación y archivo requieren un
+procedimiento aprobado y auditado.
 
 ## Paso 3: aprobar y aprovisionar las dos cuentas administrativas
 

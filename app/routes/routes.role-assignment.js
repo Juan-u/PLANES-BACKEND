@@ -14,6 +14,7 @@ export function createRoleAssignmentRouter({ service } = {}) {
   }
   const controller = createRoleAssignmentController(service);
   const router = Router();
+  router.get('/roles/asignacion-recursos', verificarToken, controller.listAssignableResources);
   router.post('/roles/asignaciones', verificarToken, controller.assign);
   router.post('/roles/asignaciones/:assignmentId/revocacion', verificarToken, controller.revoke);
   router.post('/roles/solicitudes/:requestId/decision', verificarToken, controller.decide);

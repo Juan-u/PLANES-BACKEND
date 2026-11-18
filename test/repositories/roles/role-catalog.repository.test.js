@@ -19,6 +19,7 @@ function makeTx(rows = []) {
 function configuredRole(overrides = {}) {
   return {
     id_rol: 7,
+    nombre_rol: 'sample_role',
     clasificacion_privilegio: 'ordinary',
     permite_vigencia_indefinida: 1,
     requiere_ambito: 0,
@@ -37,6 +38,7 @@ test('returns catalog and configuration fields for an existing role', async () =
 
   assert.deepEqual(result, {
     id: 7,
+    name: 'sample_role',
     classification: 'privileged',
     allowOpenEndedAssignment: false,
     requiresScope: true
@@ -63,6 +65,7 @@ test('returns missing configuration as null fields so the service fails closed',
 
   assert.deepEqual(result, {
     id: 7,
+    name: 'sample_role',
     classification: null,
     allowOpenEndedAssignment: null,
     requiresScope: null
@@ -120,12 +123,13 @@ test('returns the exact fields and ID representation expected by the service con
 
   assert.deepEqual(result, {
     id: roleId,
+    name: 'sample_role',
     classification: 'ordinary',
     allowOpenEndedAssignment: true,
     requiresScope: false
   });
   assert.deepEqual(Object.keys(result).sort(), [
-    'allowOpenEndedAssignment', 'classification', 'id', 'requiresScope'
+    'allowOpenEndedAssignment', 'classification', 'id', 'name', 'requiresScope'
   ]);
   assert.deepEqual(calls[0].params, [7]);
 });

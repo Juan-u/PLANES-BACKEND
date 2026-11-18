@@ -59,7 +59,7 @@ test('constructs an inactive service without exposing repositories or connecting
   assert.deepEqual(Object.keys(composed), ['service']);
   assert.equal(Object.isFrozen(composed.service), true);
   assert.deepEqual(Object.keys(composed.service).sort(),
-    ['assignRole', 'decideChange', 'getAssignmentStatus', 'revokeRole']);
+    ['assignRole', 'decideChange', 'getAssignmentStatus', 'listAssignableResources', 'revokeRole']);
 });
 
 test('uses the supplied pool and external clock and ID provider through the existing factory', async () => {
