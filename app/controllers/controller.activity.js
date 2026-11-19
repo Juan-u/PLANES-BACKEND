@@ -1,3 +1,4 @@
+import { activityScopeFilter } from '../services/activity-access.js';
 import { assertWorkflowEditable, attachWorkflowStates } from '../services/plan-workflow.guard.js';
 import { WorkflowError } from '../services/plan-workflow.rules.js';
 import { normalizeDraft, attachDrafts, saveDraft, DraftError } from '../services/institutional-draft.service.js';
@@ -61,7 +62,8 @@ export function createActivityController(pool) {
     if (planId) { clauses.push('id_plan = ?'); params.push(planId); }
     if (estado) { clauses.push('estado = ?'); params.push(estado); }
     if (responsable) { clauses.push('responsable LIKE ?'); params.push(`%${responsable}%`); }
-    const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
+    const scope = activityScopeFilter(req.activityAccess, params, '');
+    const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}${scope}` : scope ? ` WHERE 1 = 1${scope}` : '';
     try {
       const [rows] = await pool.query(`SELECT ${BASE_COLUMNS} FROM actividad${where} ORDER BY id_actividad`, params);
       return res.json(await attachWorkflowStates(pool,await attachDrafts(pool, Array.isArray(rows) ? rows : [], 'actividad'),'actividad'));

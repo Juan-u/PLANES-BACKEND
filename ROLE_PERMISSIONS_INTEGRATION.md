@@ -2,6 +2,8 @@
 
 ## Estado actual
 
+El menú usa los códigos de permisos efectivos del usuario, incluidos los de asignaciones con ámbito. Para Actividades, Seguimiento y sus evidencias, el backend consulta los ámbitos tipados vigentes del permiso solicitado. Las colecciones y métricas se limitan a las actividades de esos ámbitos. Para una operación individual, el backend obtiene el plan de la actividad persistida o de la actividad asociada a la evidencia. Una asignación de plan cubre sus actividades y una asignación de actividad cubre esa actividad. La administración de períodos y la aprobación de seguimientos mantienen sus controles institucionales y permisos globales.
+
 El módulo cuenta con el servicio de asignaciones, repositorios protegidos por el mutex persistente, administración de catálogo y cuentas, controladores y routers HTTP. La aplicación usa el middleware JWT existente; la identidad de las operaciones nuevas se toma de `req.usuario.sub` después de verificar el token. La autorización del nuevo módulo consulta asignaciones, permisos, configuración y vigencia; `usuario.id_rol` no concede permisos nuevos.
 
 La autenticación del login permanece independiente de la autorización de módulos. El API de cuentas mantiene la validación de cuenta activa. La interfaz EJS consume el API con el JWT guardado en la sesión del servidor y aplica CSRF a sus formularios de escritura.

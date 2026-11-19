@@ -11,6 +11,7 @@ import pool from './app/config/db.js';
 import routeAuth from './app/routes/routes.auth.js';
 import { createUsuarioRouter } from './app/routes/routes.usuario.js';
 import { createPermissionMiddleware } from './app/middleware/permission.middleware.js';
+import { findActivity } from './app/services/activity-access.js';
 import { createRoleAssignmentComposition } from './app/services/role-assignment.composition.js';
 import { createRoleAssignmentRouter } from './app/routes/routes.role-assignment.js';
 import { createRoleAdministrationComposition } from './app/services/role-administration.composition.js';
@@ -49,6 +50,9 @@ app.use('/api', routeAuth);
 // Authenticated user CRUD is permission-protected. Login remains independent
 // from authorization and continues to authenticate any active valid account.
 const requirePermission = createPermissionMiddleware({ pool });
+const activityFromPath = (req, tx) => findActivity(tx, req.params.id);
+const activityFromBody = (req, tx) => findActivity(tx, req.body?.id_actividad);
+const activityFromEvidence = (req, tx) => findActivity(tx, req.params.id, { evidence: true });
 app.use('/api', createUsuarioRouter({ requirePermission }));
 
 const ids = Object.freeze({ next: randomUUID });
@@ -91,9 +95,10 @@ app.use('/api', createQuarterlyIntegrationRouter({pool}));
 app.use('/api', createInstitutionalReportsRouter({pool}));
 app.use('/api', createActivityRouter({
   pool,
-  authorizeRead: requirePermission('M04.activities.read'),
+  authorizeRead: requirePermission('M04.activities.read', { activityAccess: true }),
+  authorizeDetail: requirePermission('M04.activities.read', { activityAccess: activityFromPath }),
   authorizeCreate: requirePermission('M04.activities.create'),
-  authorizeUpdate: requirePermission('M04.activities.update')
+  authorizeUpdate: requirePermission('M04.activities.update', { activityAccess: activityFromPath })
 }));
 app.use('/api', createReadModelsRouter({
   pool,
@@ -103,13 +108,17 @@ app.use('/api', createReadModelsRouter({
 app.use('/api', createEvidenceRouter({
   pool,
   storage: createEvidenceStorage(),
-  authorizeRead: requirePermission('M13.evidence.read'),
-  authorizeUpload: requirePermission('M13.evidence.upload')
+  authorizeRead: requirePermission('M13.evidence.read', { activityAccess: activityFromPath }),
+  authorizeDownload: requirePermission('M13.evidence.read', { activityAccess: activityFromEvidence }),
+  authorizeUpload: requirePermission('M13.evidence.upload', { activityAccess: activityFromBody }),
+  authorizeUploadBytes: requirePermission('M13.evidence.upload', { activityAccess: activityFromPath }),
+  authorizeLink: requirePermission('M13.evidence.upload', { activityAccess: activityFromEvidence })
 }));
 app.use('/api', createFollowupRouter({
   pool,
-  authorizeRead: requirePermission('M05.followup.read'),
-  authorizeCreate: requirePermission('M05.followup.create'),
+  authorizeRead: requirePermission('M05.followup.read', { activityAccess: true }),
+  authorizeHistory: requirePermission('M05.followup.read', { activityAccess: activityFromPath }),
+  authorizeCreate: requirePermission('M05.followup.create', { activityAccess: activityFromPath }),
   authorizeUpdate: requirePermission('M05.followup.update'),
   authorizeApprove: requirePermission('M05.followup.approve'),
   authorizeReportRead: requirePermission('M12.reports.read')

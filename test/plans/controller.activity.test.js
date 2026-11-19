@@ -38,6 +38,20 @@ test('rejects malformed filters without querying', async () => {
   assert.equal(queries, 0);
 });
 
+test('intersects a requested plan filter with the authorized activity scope', async () => {
+  const pool = { async query(sql, params) {
+    assert.match(sql, /WHERE id_plan = \? AND \(id_plan IN \(\?\)\)/);
+    assert.deepEqual(params, [2, 1]);
+    return [[], []];
+  }, getConnection() {} };
+  const res = response();
+  await createActivityController(pool).list({
+    query: { planId: '2' },
+    activityAccess: { planIds: new Set([1]), activityIds: new Set() }
+  }, res);
+  assert.deepEqual(res.body, []);
+});
+
 test('returns activity detail by parameterized signed integer ID', async () => {
   let query;
   const pool = { async query(sql, params) { if (!sql.includes('FROM actividad WHERE')) return [[], []]; query = { sql, params }; return [[{ id_actividad: 6, id_plan: 4 }], []]; }, getConnection() {} };

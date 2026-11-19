@@ -247,5 +247,5 @@ test('requires the transaction passed by the service', async () => {
   assert.equal(calls, 0);
   assert.equal(await repo.canManageRole(BASE, tx), false);
   assert.equal(calls, 1);
-  assert.deepEqual(Object.keys(repo), ['getEffectivePermissionCodes', 'canAccess', 'canManageRole']);
+  assert.deepEqual(Object.keys(repo), ['getEffectivePermissionCodes', 'canAccess', 'listActivityScopes', 'canManageRole']);
 });

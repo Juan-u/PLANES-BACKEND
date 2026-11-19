@@ -38,6 +38,84 @@ function authorizationResult(result) {
 }
 
 export function createAuthorizationRepository({ mutex } = {}) {
+  async function access(context, tx, listResources = false) {
+    requireTx(tx, mutex);
+    if (!context || typeof context !== 'object') return listResources ? [] : false;
+    const actorId = signedInt(context.actorId);
+    const permissionCode = context.permissionCode;
+    if (actorId == null || typeof permissionCode !== 'string' ||
+        !/^[A-Z]\d{2}\.[a-z_]+\.[a-z_]+$/.test(permissionCode)) return listResources ? [] : false;
+    const scope = encodeScope(context.scopeRef ?? null);
+    if (scope === false) return listResources ? [] : false;
+    let scopePredicate;
+    const params = [permissionCode, actorId];
+    if (listResources) {
+      scopePredicate = `AND ((resource_scope.tipo_recurso = 'plan' AND resource_scope.id_actividad IS NULL)
+          OR (resource_scope.tipo_recurso = 'activity' AND resource_scope.id_actividad IS NOT NULL))`;
+    } else if (scope == null) {
+      scopePredicate = 'AND assignment.id_scope_ref IS NULL AND config.requiere_ambito = 0';
+    } else {
+      scopePredicate = `AND EXISTS (
+        SELECT 1
+          FROM rol_scope_ref AS requested_scope
+          JOIN rol_scope_permitido AS permitted_scope
+            ON permitted_scope.id_scope_ref = requested_scope.id_scope_ref
+           AND permitted_scope.id_rol = assignment.id_rol
+         WHERE requested_scope.ref_kind = ?
+           AND BINARY requested_scope.ref_value = BINARY ?
+           AND requested_scope.activo = 1
+           AND requested_scope.id_scope_ref = assignment.id_scope_ref
+      )`;
+      params.push(scope.kind, scope.value);
+    }
+    const resourceJoin = listResources ? `
+        JOIN rol_scope_recurso AS resource_scope ON resource_scope.id_scope_ref = assignment.id_scope_ref
+        JOIN rol_scope_ref AS active_scope ON active_scope.id_scope_ref = resource_scope.id_scope_ref
+          AND active_scope.activo = 1
+        JOIN rol_scope_permitido AS allowed_scope ON allowed_scope.id_scope_ref = resource_scope.id_scope_ref
+          AND allowed_scope.id_rol = assignment.id_rol` : '';
+    const query = `${listResources
+      ? 'SELECT DISTINCT resource_scope.id_plan, resource_scope.id_actividad'
+      : 'SELECT EXISTS (SELECT 1'}
+        FROM rol_asignacion AS assignment
+        JOIN rol_configuracion AS config ON config.id_rol = assignment.id_rol
+        ${resourceJoin}
+        JOIN rol_permiso AS role_permission ON role_permission.id_rol = assignment.id_rol
+         AND role_permission.activo = 1
+        JOIN permiso AS permission
+          ON permission.id_permiso = role_permission.id_permiso
+         AND BINARY permission.codigo = BINARY ?
+         AND permission.activo = 1
+       WHERE assignment.id_usuario = ?
+         AND assignment.estado IN ('active', 'scheduled')
+         AND assignment.vigente_desde <= UTC_TIMESTAMP(3)
+         AND (assignment.vigente_hasta IS NULL OR assignment.vigente_hasta > UTC_TIMESTAMP(3))
+         AND config.clasificacion_privilegio IN ('ordinary', 'privileged')
+         AND config.requiere_ambito IN (0, 1)
+         AND (config.requiere_ambito = 0 OR assignment.id_scope_ref IS NOT NULL)
+         AND (
+           config.clasificacion_privilegio = 'ordinary'
+           OR EXISTS (
+             SELECT 1
+               FROM rol_solicitud AS approved_request
+               JOIN rol_decision AS approval_decision
+                 ON approval_decision.id_solicitud = approved_request.id_solicitud
+              WHERE approved_request.id_asignacion_resultado = assignment.id_asignacion
+                AND approved_request.tipo_accion = 'assign'
+                AND approved_request.estado = 'approved'
+                AND approved_request.id_usuario_solicitante = assignment.creado_por
+                AND approval_decision.resultado = 'approved'
+                AND approval_decision.tipo_actor = 'user'
+                AND approval_decision.id_usuario_decisor IS NOT NULL
+                AND approval_decision.id_usuario_decisor <> approved_request.id_usuario_solicitante
+           )
+         )
+         ${scopePredicate}
+    ${listResources ? '' : ') AS authorized'}`;
+    const result = await tx.execute(query, params);
+    return listResources ? readRows(result) : authorizationResult(result);
+  }
+
   return Object.freeze({
     async getEffectivePermissionCodes(context, tx) {
       requireTx(tx, mutex);
@@ -75,71 +153,11 @@ export function createAuthorizationRepository({ mutex } = {}) {
        ORDER BY permission.codigo`, [actorId]));
       return found.map((row) => row.codigo).filter((code) => typeof code === 'string');
     },
-    async canAccess(context, tx) {
-      requireTx(tx, mutex);
-      if (!context || typeof context !== 'object') return false;
-      const actorId = signedInt(context.actorId);
-      const permissionCode = context.permissionCode;
-      if (actorId == null || typeof permissionCode !== 'string' ||
-          !/^[A-Z]\d{2}\.[a-z_]+\.[a-z_]+$/.test(permissionCode)) return false;
-      const scope = encodeScope(context.scopeRef ?? null);
-      if (scope === false) return false;
-      let scopePredicate;
-      const params = [permissionCode, actorId];
-      if (scope == null) {
-        scopePredicate = 'AND assignment.id_scope_ref IS NULL AND config.requiere_ambito = 0';
-      } else {
-        scopePredicate = `AND EXISTS (
-          SELECT 1
-            FROM rol_scope_ref AS requested_scope
-            JOIN rol_scope_permitido AS permitted_scope
-              ON permitted_scope.id_scope_ref = requested_scope.id_scope_ref
-             AND permitted_scope.id_rol = assignment.id_rol
-           WHERE requested_scope.ref_kind = ?
-             AND BINARY requested_scope.ref_value = BINARY ?
-             AND requested_scope.activo = 1
-             AND requested_scope.id_scope_ref = assignment.id_scope_ref
-        )`;
-        params.push(scope.kind, scope.value);
-      }
-      const query = `SELECT EXISTS (
-        SELECT 1
-          FROM rol_asignacion AS assignment
-          JOIN rol_configuracion AS config ON config.id_rol = assignment.id_rol
-          JOIN rol_permiso AS role_permission ON role_permission.id_rol = assignment.id_rol
-           AND role_permission.activo = 1
-          JOIN permiso AS permission
-            ON permission.id_permiso = role_permission.id_permiso
-           AND BINARY permission.codigo = BINARY ?
-           AND permission.activo = 1
-         WHERE assignment.id_usuario = ?
-           AND assignment.estado IN ('active', 'scheduled')
-           AND assignment.vigente_desde <= UTC_TIMESTAMP(3)
-           AND (assignment.vigente_hasta IS NULL OR assignment.vigente_hasta > UTC_TIMESTAMP(3))
-           AND config.clasificacion_privilegio IN ('ordinary', 'privileged')
-           AND config.requiere_ambito IN (0, 1)
-           AND (config.requiere_ambito = 0 OR assignment.id_scope_ref IS NOT NULL)
-           AND (
-             config.clasificacion_privilegio = 'ordinary'
-             OR EXISTS (
-               SELECT 1
-                 FROM rol_solicitud AS approved_request
-                 JOIN rol_decision AS approval_decision
-                   ON approval_decision.id_solicitud = approved_request.id_solicitud
-                WHERE approved_request.id_asignacion_resultado = assignment.id_asignacion
-                  AND approved_request.tipo_accion = 'assign'
-                  AND approved_request.estado = 'approved'
-                  AND approved_request.id_usuario_solicitante = assignment.creado_por
-                  AND approval_decision.resultado = 'approved'
-                  AND approval_decision.tipo_actor = 'user'
-                  AND approval_decision.id_usuario_decisor IS NOT NULL
-                  AND approval_decision.id_usuario_decisor <> approved_request.id_usuario_solicitante
-             )
-           )
-           ${scopePredicate}
-      ) AS authorized`;
-      const sql = query.replace('${scopePredicate}', scopePredicate);
-      return authorizationResult(await tx.execute(sql, params));
+    canAccess(context, tx) {
+      return access(context, tx);
+    },
+    listActivityScopes(context, tx) {
+      return access(context, tx, true);
     },
     async canManageRole(context, tx) {
       requireTx(tx, mutex);

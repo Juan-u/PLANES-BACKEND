@@ -1,3 +1,4 @@
+import { activityScopeFilter, getActivityAccess, hasActivityAccess } from './activity-access.js';
 import {createMysqlTransactionManager} from './mysql-transaction-manager.js';
 import {createAuthorizationMutexRepository} from '../repositories/roles/authorization-mutex.repository.js';
 import {createAuthorizationRepository} from '../repositories/roles/authorization.repository.js';
@@ -10,26 +11,31 @@ const dateFields="id_periodo,anio,trimestre,DATE_FORMAT(fecha_inicio,'%Y-%m-%d')
 export function createQuarterlyIntegrationService({pool,authority=closed,requirements=closed,clock=()=>new Date()}={}) {
   const transactions=createMysqlTransactionManager(pool),mutex=createAuthorizationMutexRepository(),auth=createAuthorizationRepository({mutex});
   const allowed=(tx,actorId,permissionCode)=>auth.canAccess({actorId,permissionCode,scopeRef:null},tx);
-  async function run(context,permission,work,{requireSchema=true}={}) {
+  async function run(context,permission,work,{requireSchema=true, scoped=false}={}) {
     const actorId=positiveId(context?.actorId);
     return transactions.run(raw=>mutex.withLock(raw,async tx=>{
       const[users]=await tx.execute('SELECT id_usuario FROM usuario WHERE id_usuario=? AND LOWER(estado)=?',[actorId,'activo']);
       if(users.length!==1)throw new IntegrationError('AUTHENTICATION_REQUIRED',401);
-      if(!await allowed(tx,actorId,permission))throw new IntegrationError('FORBIDDEN',403);
+      const access = scoped ? await getActivityAccess(auth, tx, actorId, permission) : null;
+      if (scoped ? !hasActivityAccess(access) : !await allowed(tx, actorId, permission)) {
+        throw new IntegrationError('FORBIDDEN',403);
+      }
       if(requireSchema&&!await integrationReady(tx))throw new IntegrationError('INTEGRATION_NOT_ACTIVATED',503);
-      return work(tx,actorId);
+      return work(tx,actorId,access);
     }));
   }
   const service={
-    options(context){return run(context,'M13.evidence.upload',async tx=>({ready:await integrationReady(tx),maxBytes:EVIDENCE_LIMIT,types:['application/pdf','image/png','image/jpeg','text/plain']}),{requireSchema:false});},
+    options(context){return run(context,'M13.evidence.upload',async tx=>({ready:await integrationReady(tx),maxBytes:EVIDENCE_LIMIT,types:['application/pdf','image/png','image/jpeg','text/plain']}),{requireSchema:false, scoped:true});},
     overview(context,query={}) {
       const planId=query.planId?positiveId(query.planId):null,activityId=query.activityId?positiveId(query.activityId):null;
       const year=query.anio?Number(query.anio):null,quarter=query.trimestre?Number(query.trimestre):null,state=query.estado||null;
       if(query.anio&&!Number.isInteger(year)||query.trimestre&&!Number.isInteger(quarter))throw new IntegrationError('INVALID_FILTER');
       if(year!==null&&(!Number.isInteger(year)||year<1000||year>9999)||quarter!==null&&(!Number.isInteger(quarter)||quarter<1||quarter>4)||state&&!['pending','approved','rejected'].includes(state))throw new IntegrationError('INVALID_FILTER');
       const after=query.after?positiveId(query.after):0,before=query.before?eventCursor(query.before):null;
-      return run(context,'M05.followup.read',async(tx,actorId)=>{
-        const canPlans=await allowed(tx,actorId,'M03.plans.read'),canActivities=await allowed(tx,actorId,'M04.activities.read'),canEvidence=await allowed(tx,actorId,'M13.evidence.read');
+      return run(context,'M05.followup.read',async(tx,actorId,access)=>{
+        const canPlans=await allowed(tx,actorId,'M03.plans.read'),canActivities=await allowed(tx,actorId,'M04.activities.read');
+        const evidenceAccess = await getActivityAccess(auth, tx, actorId, 'M13.evidence.read');
+        const canEvidence = hasActivityAccess(evidenceAccess);
         const[allPeriods]=await tx.query(`SELECT ${dateFields} FROM periodo_seguimiento ORDER BY anio DESC,trimestre DESC`);
         const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Bogota',year:'numeric',month:'2-digit',day:'2-digit'}).format(clock());
         const active=allPeriods.filter(p=>p.estado==='open'&&p.fecha_inicio<=today&&p.fecha_fin>=today);
@@ -37,6 +43,9 @@ export function createQuarterlyIntegrationService({pool,authority=closed,require
         const selected=query.periodId?allPeriods.find(p=>Number(p.id_periodo)===positiveId(query.periodId)):periods.find(p=>active.length===1&&p.id_periodo===active[0].id_periodo)||periods[0]||null;
         if(query.periodId&&!selected)throw new IntegrationError('PERIOD_NOT_FOUND',404);
         if(!selected)return {ready:true,periods,period:null,activities:[],history:[],files:[],summary:null,activePeriodId:active.length===1?active[0].id_periodo:null,activeAmbiguous:active.length>1};
+        const activityParams = [selected.id_periodo, selected.id_periodo, selected.id_periodo];
+        if (planId) activityParams.push(planId);
+        const activityScope = activityScopeFilter(access, activityParams);
         const[raw]=await tx.execute(`SELECT a.id_actividad,a.id_plan,a.descripcion,a.responsable,a.estado,DATE_FORMAT(a.fecha_inicio,'%Y-%m-%d') AS fecha_inicio,DATE_FORMAT(a.fecha_fin,'%Y-%m-%d') AS fecha_fin,
           p.nombre AS plan_nombre,i.nombre AS actividad_nombre,i.id_objetivo,o.descripcion AS objetivo,i.evidencias_esperadas,ind.id_indicador,ind.nombre AS indicador,ind.descripcion AS indicador_descripcion,ind.formula,ind.unidad,ind.fuente,
           q.porcentaje AS porcentaje_trimestral,g.porcentaje AS ultimo_aprobado,CAST(g.id_seguimiento AS CHAR) AS ultimo_aprobado_id,CAST(n.id_seguimiento AS CHAR) AS pendiente_id,EXISTS(SELECT 1 FROM seguimiento_actividad r WHERE r.id_actividad=a.id_actividad AND r.id_periodo=? AND r.estado='rejected') AS has_rejected
@@ -46,7 +55,7 @@ export function createQuarterlyIntegrationService({pool,authority=closed,require
           LEFT JOIN seguimiento_actividad q ON q.id_seguimiento=(SELECT MAX(s.id_seguimiento) FROM seguimiento_actividad s WHERE s.id_actividad=a.id_actividad AND s.id_periodo=? AND s.estado='approved')
           LEFT JOIN seguimiento_actividad g ON g.id_seguimiento=(SELECT MAX(s.id_seguimiento) FROM seguimiento_actividad s WHERE s.id_actividad=a.id_actividad AND s.estado='approved')
           LEFT JOIN seguimiento_actividad n ON n.id_seguimiento=(SELECT MAX(s.id_seguimiento) FROM seguimiento_actividad s WHERE s.id_actividad=a.id_actividad AND s.id_periodo=? AND s.estado='pending')
-          ${planId?'WHERE a.id_plan=?':''} ORDER BY a.id_actividad`,planId?[selected.id_periodo,selected.id_periodo,selected.id_periodo,planId]:[selected.id_periodo,selected.id_periodo,selected.id_periodo]);
+          ${planId ? 'WHERE a.id_plan=?' : activityScope ? 'WHERE 1 = 1' : ''}${activityScope} ORDER BY a.id_actividad`, activityParams);
         let rows=raw.map(r=>({id_actividad:r.id_actividad,id_plan:r.id_plan,descripcion:r.descripcion,responsable:r.responsable,estado:r.estado,fecha_inicio:r.fecha_inicio,fecha_fin:r.fecha_fin,
           due:!!r.fecha_fin&&r.fecha_fin<=selected.fecha_fin&&(!r.fecha_inicio||r.fecha_inicio<=selected.fecha_fin),progress:progress(r),hasRejected:!!r.has_rejected,pendingId:r.pendiente_id,lastApprovedId:r.ultimo_aprobado_id,
           plan:canPlans?{nombre:r.plan_nombre,objetivo:canActivities?r.objetivo:null,indicador:{id:r.id_indicador,nombre:r.indicador,descripcion:r.indicador_descripcion,formula:r.formula,unidad:r.unidad,fuente:r.fuente}}:null,
@@ -56,16 +65,22 @@ export function createQuarterlyIntegrationService({pool,authority=closed,require
         const visible=rows.filter(r=>r.due&&r.id_actividad>after&&(!activityId||r.id_actividad===activityId)&&(!state||state==='pending'&&r.pendingId||state==='approved'&&r.progress.quarterApproved!=null||state==='rejected'&&r.hasRejected)).slice(0,51);
         const page=visible.slice(0,50),params=[selected.id_periodo],clauses=['s.id_periodo=?'];
         if(planId){clauses.push('a.id_plan=?');params.push(planId);}if(activityId){clauses.push('s.id_actividad=?');params.push(activityId);}if(state){clauses.push('s.estado=?');params.push(state);}if(before){clauses.push('s.id_seguimiento<?');params.push(before);}
-        const[history]=await tx.execute(`SELECT CAST(s.id_seguimiento AS CHAR) AS id_seguimiento,s.id_actividad,s.id_periodo,s.porcentaje,s.observaciones,s.estado,s.creado_por,CASE WHEN f.id_seguimiento IS NULL THEN DATE_FORMAT(s.creado_en,'%Y-%m-%d %H:%i:%s') ELSE DATE_FORMAT(s.creado_en,'%Y-%m-%dT%H:%i:%s.%fZ') END AS creado_en,d.resultado,d.motivo,d.decidido_por,CASE WHEN f.id_seguimiento IS NULL THEN DATE_FORMAT(d.decidido_en,'%Y-%m-%d %H:%i:%s') ELSE DATE_FORMAT(d.decidido_en,'%Y-%m-%dT%H:%i:%s.%fZ') END AS decidido_en,f.instantanea FROM seguimiento_actividad s JOIN actividad a ON a.id_actividad=s.id_actividad LEFT JOIN seguimiento_decision d ON d.id_seguimiento=s.id_seguimiento LEFT JOIN seguimiento_formulacion f ON f.id_seguimiento=s.id_seguimiento WHERE ${clauses.join(' AND ')} ORDER BY s.id_seguimiento DESC LIMIT 51`,params);
+        const historyScope = activityScopeFilter(access, params);
+        const[history]=await tx.execute(`SELECT CAST(s.id_seguimiento AS CHAR) AS id_seguimiento,s.id_actividad,s.id_periodo,s.porcentaje,s.observaciones,s.estado,s.creado_por,CASE WHEN f.id_seguimiento IS NULL THEN DATE_FORMAT(s.creado_en,'%Y-%m-%d %H:%i:%s') ELSE DATE_FORMAT(s.creado_en,'%Y-%m-%dT%H:%i:%s.%fZ') END AS creado_en,d.resultado,d.motivo,d.decidido_por,CASE WHEN f.id_seguimiento IS NULL THEN DATE_FORMAT(d.decidido_en,'%Y-%m-%d %H:%i:%s') ELSE DATE_FORMAT(d.decidido_en,'%Y-%m-%dT%H:%i:%s.%fZ') END AS decidido_en,f.instantanea FROM seguimiento_actividad s JOIN actividad a ON a.id_actividad=s.id_actividad LEFT JOIN seguimiento_decision d ON d.id_seguimiento=s.id_seguimiento LEFT JOIN seguimiento_formulacion f ON f.id_seguimiento=s.id_seguimiento WHERE ${clauses.join(' AND ')}${historyScope} ORDER BY s.id_seguimiento DESC LIMIT 51`,params);
         const historyPage=history.slice(0,50).map(({instantanea,...h})=>{
           let snapshot=null;if(instantanea){try{const x=JSON.parse(instantanea);snapshot={...(canPlans?{plan_nombre:x.plan_nombre,objetivo:canActivities?x.objetivo:null,indicador:x.indicador,formula:x.formula,unidad:x.unidad,fuente:x.fuente}:{}),...(canActivities?{evidencias_esperadas:x.evidencias_esperadas}:{})};}catch{throw new IntegrationError('INVALID_HISTORIC_CONTEXT',503);}}
           return {...h,snapshot,timestampBasis:instantanea?'UTC':'legacy_unspecified'};
         });
         let files=[];
         const ids=[...new Set([...page.map(r=>r.id_actividad),...historyPage.map(h=>h.id_actividad)])];
-        if(canEvidence&&ids.length){[files]=await tx.query(`SELECT e.id_evidencia,e.id_actividad,e.fecha_subida,e.observaciones,m.nombre_original,m.mime_type,m.bytes,c.creado_por,DATE_FORMAT(c.creado_en,'%Y-%m-%dT%H:%i:%s.%fZ') AS creado_en,d.resultado AS revision,CAST(l.id_seguimiento AS CHAR) AS id_seguimiento FROM evidencia e LEFT JOIN evidencia_archivo_meta m ON m.id_evidencia=e.id_evidencia LEFT JOIN evidencia_carga c ON c.id_evidencia=e.id_evidencia LEFT JOIN evidencia_decision_institucional d ON d.id_evidencia=e.id_evidencia LEFT JOIN seguimiento_evidencia l ON l.id_evidencia=e.id_evidencia WHERE e.id_actividad IN (${ids.map(()=>'?').join(',')}) ORDER BY e.id_evidencia DESC LIMIT 201`,ids);}
-        const[requests]=await tx.execute("SELECT CAST(id_solicitud AS CHAR) AS id_solicitud,solicitado_por,motivo,CASE WHEN EXISTS(SELECT 1 FROM periodo_actuacion pa WHERE pa.id_solicitud=periodo_reapertura_solicitud.id_solicitud AND pa.accion='reopened') THEN 'reopened' ELSE estado END AS estado,DATE_FORMAT(solicitado_en,'%Y-%m-%dT%H:%i:%s.%fZ') AS solicitado_en FROM periodo_reapertura_solicitud WHERE id_periodo=? ORDER BY id_solicitud DESC LIMIT 50",[selected.id_periodo]);
-        const[periodHistory]=await tx.execute("SELECT accion,actor_id,estado_anterior,estado_nuevo,motivo,DATE_FORMAT(creado_en,'%Y-%m-%dT%H:%i:%s.%fZ') AS creado_en FROM periodo_actuacion WHERE id_periodo=? ORDER BY id_actuacion DESC LIMIT 50",[selected.id_periodo]);
+        if(canEvidence&&ids.length){
+          const fileParams = [...ids];
+          const evidenceScope = activityScopeFilter(evidenceAccess, fileParams);
+          const activityJoin = evidenceScope ? 'JOIN actividad a ON a.id_actividad=e.id_actividad' : '';
+          [files]=await tx.query(`SELECT e.id_evidencia,e.id_actividad,e.fecha_subida,e.observaciones,m.nombre_original,m.mime_type,m.bytes,c.creado_por,DATE_FORMAT(c.creado_en,'%Y-%m-%dT%H:%i:%s.%fZ') AS creado_en,d.resultado AS revision,CAST(l.id_seguimiento AS CHAR) AS id_seguimiento FROM evidencia e ${activityJoin} LEFT JOIN evidencia_archivo_meta m ON m.id_evidencia=e.id_evidencia LEFT JOIN evidencia_carga c ON c.id_evidencia=e.id_evidencia LEFT JOIN evidencia_decision_institucional d ON d.id_evidencia=e.id_evidencia LEFT JOIN seguimiento_evidencia l ON l.id_evidencia=e.id_evidencia WHERE e.id_actividad IN (${ids.map(()=>'?').join(',')})${evidenceScope} ORDER BY e.id_evidencia DESC LIMIT 201`, fileParams);
+        }
+        const[requests]=access ? [[]] : await tx.execute("SELECT CAST(id_solicitud AS CHAR) AS id_solicitud,solicitado_por,motivo,CASE WHEN EXISTS(SELECT 1 FROM periodo_actuacion pa WHERE pa.id_solicitud=periodo_reapertura_solicitud.id_solicitud AND pa.accion='reopened') THEN 'reopened' ELSE estado END AS estado,DATE_FORMAT(solicitado_en,'%Y-%m-%dT%H:%i:%s.%fZ') AS solicitado_en FROM periodo_reapertura_solicitud WHERE id_periodo=? ORDER BY id_solicitud DESC LIMIT 50",[selected.id_periodo]);
+        const[periodHistory]=access ? [[]] : await tx.execute("SELECT accion,actor_id,estado_anterior,estado_nuevo,motivo,DATE_FORMAT(creado_en,'%Y-%m-%dT%H:%i:%s.%fZ') AS creado_en FROM periodo_actuacion WHERE id_periodo=? ORDER BY id_actuacion DESC LIMIT 50",[selected.id_periodo]);
         const requirement=await requirements({period:selected,activities:rows},tx);
         // A trusted requirement definition alone never approves a file. Actual decisions
         // and associations to the approved follow-up are checked before completion.
@@ -75,7 +90,7 @@ export function createQuarterlyIntegrationService({pool,authority=closed,require
           summary:officialSummary(rows),generalAverage:calcularPromedioAvanceAprobado(rows.filter(r=>r.progress.lastApproved!=null).map(r=>r.progress.lastApproved)),completion:planId?completion(rows,{confirmed:requirement?.confirmed,reference:requirement?.reference,verifiedActivityIds:verified}):{state:'seleccione_plan',complete:false,reason:'Selecciona un plan para consultar su cumplimiento conjunto. El promedio global no certifica su finalización.'},
           metricScope:{planId,filtersAffectSummary:false,eligibility:'existing_due_by_period_end'},nextActivityCursor:visible.length>50?page.at(-1).id_actividad:null,nextHistoryCursor:history.length>50?historyPage.at(-1).id_seguimiento:null,
           requests,periodHistory,institutionalActionsEnabled:false};
-      });
+      }, { scoped: true });
     },
     requestReopen(context,id,input={}) {
       id=positiveId(id);const reason=observation(input.motivo,true),clientId=input.client_id;

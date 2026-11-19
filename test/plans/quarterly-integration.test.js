@@ -36,6 +36,55 @@ test('bad filters fail before database access',async()=>{
   const service=createQuarterlyIntegrationService({pool:{getConnection(){throw new Error('unexpected');}}});
   for(const query of [{anio:'foo'},{anio:'0'},{trimestre:'0'},{trimestre:'5'},{estado:'all OR 1=1'}])assert.throws(()=>service.overview({actorId:1},query),e=>e.code==='INVALID_FILTER');
 });
+
+test('scoped quarterly overview bounds activities, history, evidence and metric inputs by authorized plans', async () => {
+  const activity = { id_actividad: 10, id_plan: 1, fecha_fin: '2026-03-10', porcentaje_trimestral: 25, ultimo_aprobado: 25 };
+  const period = { id_periodo: 4, estado: 'open', anio: 2026, trimestre: 1, fecha_inicio: '2026-01-01', fecha_fin: '2026-03-31' };
+  const calls = [];
+  const connection = {
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async execute(sql, params) {
+      calls.push({ sql, params });
+      if (sql.includes('rol_autorizacion_mutex')) return [[{ mutex_id: 1 }]];
+      if (sql.includes('FROM usuario')) return [[{ id_usuario: 3 }]];
+      if (sql.includes('AS authorized')) return [[{ authorized: 0 }]];
+      if (sql.includes('SELECT DISTINCT resource_scope')) return [[{ id_plan: 1, id_actividad: null }]];
+      if (sql.includes('p.nombre AS plan_nombre')) {
+        assert.match(sql, /a.id_plan IN \(\?\)/);
+        assert.equal(params.at(-1), 1);
+        return [params.includes(2) ? [] : [activity]];
+      }
+      if (sql.includes('FROM seguimiento_actividad s JOIN actividad a')) {
+        assert.match(sql, /a.id_plan IN \(\?\)/);
+        assert.equal(params.at(-1), 1);
+        return [params.includes(2) ? [] : [{ id_seguimiento: '100', id_actividad: 10 }]];
+      }
+      assert.fail(sql);
+    },
+    async query(sql, params) {
+      if (sql.includes('information_schema')) return [[{ table_count: 7, trigger_count: 14, limit_count: 1 }]];
+      if (sql.includes('FROM periodo_seguimiento')) return [[period]];
+      assert.match(sql, /JOIN actividad a.*a.id_plan IN \(\?\)/s);
+      assert.deepEqual(params, [10, 1]);
+      return [[{ id_evidencia: 5, id_actividad: 10 }]];
+    }
+  };
+  const service = createQuarterlyIntegrationService({ pool: { async getConnection() { return connection; } } });
+  const own = await service.overview({ actorId: 3 });
+  assert.deepEqual(own.activities.map(row => row.id_actividad), [10]);
+  assert.equal(own.history.length, 1);
+  assert.equal(own.files.length, 1);
+  assert.equal(own.summary.activitiesDue, 1);
+  assert.equal(own.generalAverage, 25);
+  assert.deepEqual([own.requests, own.periodHistory], [[], []]);
+  const other = await service.overview({ actorId: 3 }, { planId: '2' });
+  assert.deepEqual([other.activities, other.history, other.files], [[], [], []]);
+  assert.equal(other.summary.activitiesDue, 0);
+  await assert.rejects(service.requestReopen({ actorId: 3 }, 4, {
+    motivo: 'Revisar', client_id: '0ed45be4-9877-43ab-be4a-f616ddd03cc0'
+  }), error => error.code === 'FORBIDDEN');
+  assert.ok(calls.every(({ sql }) => !sql.includes('INSERT')));
+});
 test('E migration never inserts/updates existing approval/percentage rows',async()=>{
   const sql=await readFile(new URL('../../migrations/20261103_quarterly_integration.up.sql',import.meta.url),'utf8');
   assert.doesNotMatch(sql,/UPDATE seguimiento_actividad|INSERT INTO seguimiento_decision|UPDATE calificacion|INSERT INTO rol_asignacion/i);

@@ -95,3 +95,29 @@ test('summary reuses the approved-progress and quarterly-coverage calculation se
   assert.equal(response.body.activitiesPending, 1);
   assert.deepEqual(response.body.summary, { promedioAvance: 50, coberturaTrimestral: 50 });
 });
+
+test('closed period summary counts only authorized activities in its saved snapshot', async () => {
+  const snapshot = { rows: [
+    { id_actividad: 10, porcentaje_aprobado: 25 },
+    { id_actividad: 20, porcentaje_aprobado: 100 }
+  ] };
+  const pool = { async query(sql, params) {
+    if (sql.includes('FROM periodo_seguimiento')) return [[{ ...openPeriod, estado: 'closed' }]];
+    if (sql.includes('FROM periodo_resultado_version')) return [[{ instantanea: JSON.stringify(snapshot) }]];
+    if (sql.includes('FROM actividad')) {
+      assert.match(sql, /a.id_actividad IN \(\?,\?\) AND \(a.id_plan IN \(\?\)\)/);
+      assert.deepEqual(params, [10, 20, 1]);
+      return [[{ id_actividad: 10 }]];
+    }
+    assert.match(sql, /COUNT\(DISTINCT id_actividad\)/);
+    assert.deepEqual(params, [3, 10]);
+    return [[{ n: 0 }]];
+  }, getConnection() {} };
+  const response = res();
+  await createFollowupController(pool).summary({
+    params: { id: '3' },
+    activityAccess: { planIds: new Set([1]), activityIds: new Set() }
+  }, response);
+  assert.equal(response.body.activitiesDue, 1);
+  assert.deepEqual(response.body.summary, { promedioAvance: 25, coberturaTrimestral: 100 });
+});

@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 import { createPermissionMiddleware } from '../../app/middleware/permission.middleware.js';
+import { findActivity } from '../../app/services/activity-access.js';
 
-function setup({ authorized = 1, mutexRows = [{ mutex_id: 1 }], queryError = null } = {}) {
+function setup({ authorized = 1, mutexRows = [{ mutex_id: 1 }], queryError = null, scopes = [] } = {}) {
   const events = [];
   const calls = [];
   const pool = {
@@ -18,6 +19,11 @@ function setup({ authorized = 1, mutexRows = [{ mutex_id: 1 }], queryError = nul
           calls.push({ sql, params });
           if (queryError) throw queryError;
           if (/rol_autorizacion_mutex/.test(sql)) return [mutexRows, []];
+          if (/SELECT DISTINCT resource_scope/.test(sql)) return [scopes, []];
+          if (/FROM actividad WHERE id_actividad/.test(sql)) {
+            const [id] = params;
+            return [[{ id_plan: id === 10 ? 1 : 2, id_actividad: id }], []];
+          }
           return [[{ authorized }], []];
         },
         async query(sql, params) { return this.execute(sql, params); }
@@ -86,4 +92,22 @@ test('permission middleware rejects malformed or absent permission configuration
   const { requirePermission } = setup();
   assert.throws(() => requirePermission(''), /permission code/i);
   assert.throws(() => createPermissionMiddleware({}), /pool/i);
+});
+
+test('scoped collaborator can reach own-plan operations but cannot reach another plan or global administration', async () => {
+  const { calls, requirePermission } = setup({ authorized: 0, scopes: [{ id_plan: 1, id_actividad: null }] });
+  const pathActivity = (req, tx) => findActivity(tx, req.params.id);
+  const gate = requirePermission('M05.followup.create', { activityAccess: pathActivity });
+  const own = response(), other = response(), admin = response();
+  await gate({ usuario: { sub: '3' }, params: { id: '10' } }, own, () => own.json({ allowed: true }));
+  await gate({ usuario: { sub: '3' }, params: { id: '20' }, body: { id_plan: 1 } }, other, () => assert.fail());
+  await requirePermission('M05.followup.update')({ usuario: { sub: '3' } }, admin, () => assert.fail());
+  assert.deepEqual([own.statusCode, other.statusCode, admin.statusCode], [200, 403, 403]);
+  const scoped = calls.filter(({ sql }) => /SELECT DISTINCT resource_scope/.test(sql));
+  assert.equal(scoped.length, 2);
+  assert.deepEqual(scoped[0].params, ['M05.followup.create', 3]);
+  assert.match(scoped[0].sql, /resource_scope.id_scope_ref = assignment.id_scope_ref/);
+  assert.match(scoped[0].sql, /allowed_scope.id_rol = assignment.id_rol/);
+  assert.match(scoped[0].sql, /active_scope.activo = 1/);
+  assert.match(scoped[0].sql, /assignment.vigente_hasta > UTC_TIMESTAMP/);
 });

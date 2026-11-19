@@ -1,3 +1,4 @@
+import { activityScopeFilter } from '../services/activity-access.js';
 import { IntegrationError } from '../services/quarterly-integration.rules.js';
 import { captureFollowupContext, recordPeriodAction, closedPeriodSnapshot } from '../services/quarterly-integration.context.js';
 import { createMysqlTransactionManager } from '../services/mysql-transaction-manager.js';
@@ -91,16 +92,20 @@ export function createFollowupController(pool,{institutionalAuthority=CLOSED_PER
       const frozen=periods[0].estado==='closed'?await closedPeriodSnapshot(pool,periodId):null;
       if(frozen){
         if(!frozen.rows.length)return res.json({period:periods[0],activities:[],closedSnapshotAvailable:true});
-        const[items]=await pool.query(`SELECT ${ACTIVITY_FIELDS},(SELECT s.id_seguimiento FROM seguimiento_actividad s WHERE s.id_actividad=a.id_actividad AND s.id_periodo=? AND s.estado='pending' ORDER BY s.id_seguimiento DESC LIMIT 1) AS id_seguimiento_pendiente FROM actividad a WHERE a.id_actividad IN (${frozen.rows.map(()=>'?').join(',')}) ORDER BY a.id_actividad`,[periodId,...frozen.rows.map(r=>r.id_actividad)]);
-        if(items.length!==frozen.rows.length)throw new IntegrationError('INVALID_CLOSED_SNAPSHOT',503);
+        const params = [periodId, ...frozen.rows.map(r => r.id_actividad)];
+        const scope = activityScopeFilter(req.activityAccess, params);
+        const[items]=await pool.query(`SELECT ${ACTIVITY_FIELDS},(SELECT s.id_seguimiento FROM seguimiento_actividad s WHERE s.id_actividad=a.id_actividad AND s.id_periodo=? AND s.estado='pending' ORDER BY s.id_seguimiento DESC LIMIT 1) AS id_seguimiento_pendiente FROM actividad a WHERE a.id_actividad IN (${frozen.rows.map(()=>'?').join(',')})${scope} ORDER BY a.id_actividad`, params);
+        if(!req.activityAccess && items.length!==frozen.rows.length)throw new IntegrationError('INVALID_CLOSED_SNAPSHOT',503);
         return res.json({period:periods[0],closedSnapshotAvailable:true,activities:items.map(a=>{const stored=frozen.rows.find(r=>Number(r.id_actividad)===Number(a.id_actividad));return {...a,fecha_inicio:stored.fecha_inicio,fecha_fin:stored.fecha_fin,porcentaje_aprobado:stored.porcentaje_aprobado};})});
       }
+      const params = [periodId, periodId, periods[0].fecha_fin, periods[0].fecha_fin];
+      const scope = activityScopeFilter(req.activityAccess, params);
       const [rows] = await pool.query(`SELECT ${ACTIVITY_FIELDS},
           (SELECT s.id_seguimiento FROM seguimiento_actividad AS s WHERE s.id_actividad = a.id_actividad AND s.id_periodo = ? AND s.estado = 'pending' ORDER BY s.id_seguimiento DESC LIMIT 1) AS id_seguimiento_pendiente,
           (SELECT s.porcentaje FROM seguimiento_actividad AS s WHERE s.id_actividad = a.id_actividad AND s.id_periodo = ? AND s.estado = 'approved' ORDER BY s.id_seguimiento DESC LIMIT 1) AS porcentaje_aprobado
         FROM actividad AS a
-        WHERE a.fecha_fin IS NOT NULL AND a.fecha_fin <= ? AND (a.fecha_inicio IS NULL OR a.fecha_inicio <= ?)
-        ORDER BY a.id_actividad`, [periodId, periodId, periods[0].fecha_fin, periods[0].fecha_fin]);
+        WHERE a.fecha_fin IS NOT NULL AND a.fecha_fin <= ? AND (a.fecha_inicio IS NULL OR a.fecha_inicio <= ?)${scope}
+        ORDER BY a.id_actividad`, params);
       return res.json({ period: periods[0], activities: rows ?? [] });
     } catch { return res.status(503).json({ error: 'No fue posible consultar actividades del período.' }); }
   }
@@ -123,12 +128,16 @@ export function createFollowupController(pool,{institutionalAuthority=CLOSED_PER
     const periodId = idValue(req.params?.id);
     if (!periodId) return res.status(400).json({ error: 'Identificador de período inválido.' });
     try {
+      const params = [periodId];
+      const scope = activityScopeFilter(req.activityAccess, params);
+      const activityJoin = scope ? 'JOIN actividad AS a ON a.id_actividad = s.id_actividad' : '';
       const [rows] = await pool.query(`SELECT s.id_seguimiento, s.id_actividad, s.id_periodo, p.anio, p.trimestre, s.porcentaje, s.observaciones,
           s.estado, s.creado_por, s.creado_en, d.resultado AS decision, d.motivo AS motivo_decision,
           d.decidido_por, d.decidido_en FROM seguimiento_actividad AS s
         JOIN periodo_seguimiento AS p ON p.id_periodo = s.id_periodo
         LEFT JOIN seguimiento_decision AS d ON d.id_seguimiento = s.id_seguimiento
-        WHERE s.id_periodo = ? ORDER BY s.creado_en DESC, s.id_seguimiento DESC`, [periodId]);
+        ${activityJoin}
+        WHERE s.id_periodo = ?${scope} ORDER BY s.creado_en DESC, s.id_seguimiento DESC`, params);
       return res.json(rows ?? []);
     } catch { return res.status(503).json({ error: 'No fue posible consultar el historial del período.' }); }
   }
@@ -205,16 +214,27 @@ export function createFollowupController(pool,{institutionalAuthority=CLOSED_PER
       const [periods] = await pool.query(`SELECT ${PERIOD_FIELDS} FROM periodo_seguimiento WHERE id_periodo = ? LIMIT 1`, [periodId]);
       if (!periods.length) return res.status(404).json({ error: 'Período no encontrado.' });
       const frozen=periods[0].estado==='closed'?await closedPeriodSnapshot(pool,periodId):null;
+      if (frozen && req.activityAccess && frozen.rows.length) {
+        const params = frozen.rows.map(row => row.id_actividad);
+        const placeholders = params.map(() => '?').join(',');
+        const scope = activityScopeFilter(req.activityAccess, params);
+        const [visible] = await pool.query(
+          `SELECT a.id_actividad FROM actividad AS a WHERE a.id_actividad IN (${placeholders})${scope}`, params);
+        const ids = new Set(visible.map(row => Number(row.id_actividad)));
+        frozen.rows = frozen.rows.filter(row => ids.has(Number(row.id_actividad)));
+      }
       if(frozen){
         const approved=frozen.rows.filter(r=>r.porcentaje_aprobado!=null);
         const[items]=frozen.rows.length?await pool.query(`SELECT COUNT(DISTINCT id_actividad) AS n FROM seguimiento_actividad WHERE id_periodo=? AND estado='pending' AND id_actividad IN (${frozen.rows.map(()=>'?').join(',')})`,[periodId,...frozen.rows.map(r=>r.id_actividad)]):[[{n:0}]];
         return res.json({period:periods[0],activitiesDue:frozen.rows.length,activitiesApproved:approved.length,activitiesPending:items[0]?.n??0,closedSnapshotAvailable:true,summary:generarResumenSeguimientoTrimestral(approved.map(r=>Number(r.porcentaje_aprobado)),approved.length,frozen.rows.length)});
       }
+      const params = [periodId, periodId, periods[0].fecha_fin, periods[0].fecha_fin];
+      const scope = activityScopeFilter(req.activityAccess, params);
       const [rows] = await pool.query(`SELECT a.id_actividad,
           (SELECT s.porcentaje FROM seguimiento_actividad AS s WHERE s.id_actividad = a.id_actividad AND s.id_periodo = ? AND s.estado = 'approved' ORDER BY s.id_seguimiento DESC LIMIT 1) AS porcentaje_aprobado,
           EXISTS(SELECT 1 FROM seguimiento_actividad AS s WHERE s.id_actividad = a.id_actividad AND s.id_periodo = ? AND s.estado = 'pending') AS pendiente
-        FROM actividad AS a WHERE a.fecha_fin IS NOT NULL AND a.fecha_fin <= ? AND (a.fecha_inicio IS NULL OR a.fecha_inicio <= ?)`,
-        [periodId, periodId, periods[0].fecha_fin, periods[0].fecha_fin]);
+        FROM actividad AS a WHERE a.fecha_fin IS NOT NULL AND a.fecha_fin <= ? AND (a.fecha_inicio IS NULL OR a.fecha_inicio <= ?)${scope}`,
+        params);
       const approved = rows.filter((row) => row.porcentaje_aprobado != null);
       const pending = rows.filter((row) => row.pendiente === 1 || row.pendiente === true);
       const summary = generarResumenSeguimientoTrimestral(approved.map((row) => Number(row.porcentaje_aprobado)), approved.length, rows.length);

@@ -1,6 +1,7 @@
 import { createAuthorizationMutexRepository } from '../repositories/roles/authorization-mutex.repository.js';
 import { createAuthorizationRepository } from '../repositories/roles/authorization.repository.js';
 import { createMysqlTransactionManager } from '../services/mysql-transaction-manager.js';
+import { getActivityAccess, hasActivityAccess, includesActivity } from '../services/activity-access.js';
 
 const SUBJECT = /^[1-9]\d{0,9}$/;
 
@@ -23,7 +24,7 @@ export function createPermissionMiddleware({ pool, scopeResolver } = {}) {
   const mutex = createAuthorizationMutexRepository();
   const authorization = createAuthorizationRepository({ mutex });
 
-  return function requirePermission(permissionCode) {
+  return function requirePermission(permissionCode, { activityAccess } = {}) {
     if (typeof permissionCode !== 'string' || !/^[A-Z]\d{2}\.[a-z_]+\.[a-z_]+$/.test(permissionCode)) {
       throw new TypeError('A registered module permission code is required.');
     }
@@ -41,10 +42,18 @@ export function createPermissionMiddleware({ pool, scopeResolver } = {}) {
       try {
         const allowed = await transactions.run((rawTx) => mutex.withLock(rawTx, async (tx) => {
           mutex.assertHeld(tx);
-          let scopeRef = null;
-          if (scopeResolver) scopeRef = await scopeResolver(req, tx);
-          const granted = await authorization.canAccess({ actorId, permissionCode, scopeRef }, tx);
-          if (!granted) return false;
+          if (activityAccess) {
+            const access = await getActivityAccess(authorization, tx, actorId, permissionCode);
+            if (!hasActivityAccess(access)) return false;
+            if (access && typeof activityAccess === 'function') {
+              const activity = await activityAccess(req, tx);
+              if (!activity || !includesActivity(access, activity)) return false;
+            }
+            req.activityAccess = access;
+          } else {
+            const scopeRef = scopeResolver ? await scopeResolver(req, tx) : null;
+            if (!await authorization.canAccess({ actorId, permissionCode, scopeRef }, tx)) return false;
+          }
 
           // Keep the DB mutex for the complete controller lifetime. This is
           // intentionally conservative and serializes protected HTTP work.
