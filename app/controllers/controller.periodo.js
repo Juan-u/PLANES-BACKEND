@@ -1,0 +1,213 @@
+import db from '../config/db.js';
+
+// GET /api/periodos
+export const getPeriodos = async (req, res) => {
+    try {
+        const [rows] = await db.execute(
+            'SELECT * FROM periodos ORDER BY id DESC'
+        );
+
+        res.json(rows);
+
+    } catch (error) {
+        console.error('Error al obtener periodos:', error);
+        res.status(500).json({
+            message: 'Error del servidor'
+        });
+    }
+};
+
+
+// GET /api/periodos/:id
+export const getPeriodoById = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const [rows] = await db.execute(
+            'SELECT * FROM periodos WHERE id = ?',
+            [id]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({
+                message: 'Periodo no encontrado'
+            });
+        }
+
+        res.json(rows[0]);
+
+    } catch (error) {
+        console.error('Error al obtener periodo:', error);
+
+        res.status(500).json({
+            message: 'Error del servidor'
+        });
+    }
+};
+
+
+// POST /api/periodos
+export const crearPeriodo = async (req, res) => {
+    const {
+        nombre,
+        fecha_inicio,
+        fecha_fin,
+        estado
+    } = req.body;
+
+    if (!nombre || !fecha_inicio || !fecha_fin) {
+        return res.status(400).json({
+            message: 'Nombre, fecha de inicio y fecha de fin son requeridos'
+        });
+    }
+    if (fecha_fin < fecha_inicio) {
+        return res.status(400).json({ message: 'La fecha de cierre no puede ser anterior a la fecha de inicio' });
+    }
+
+    try {
+        const [result] = await db.execute(
+            `INSERT INTO periodos
+             (nombre, fecha_inicio, fecha_fin, estado)
+             VALUES (?, ?, ?, ?)`,
+            [
+                nombre,
+                fecha_inicio,
+                fecha_fin,
+                estado || 'Cerrado'
+            ]
+        );
+
+        res.status(201).json({
+            message: 'Periodo creado correctamente',
+            id_periodo: result.insertId
+        });
+
+    } catch (error) {
+        console.error('Error al crear periodo:', error);
+
+        res.status(500).json({
+            message: 'Error del servidor'
+        });
+    }
+};
+
+export const abrirPeriodo = async (req, res) => {
+
+    const { id } = req.params;
+
+    try {
+
+        const [result] = await db.execute(
+            `UPDATE periodos
+             SET estado = 'Abierto'
+             WHERE id = ?`,
+            [id]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({
+                message: 'Periodo no encontrado'
+            });
+        }
+
+        res.json({
+            message: 'Periodo abierto correctamente'
+        });
+
+    } catch (error) {
+
+        console.error('Error al abrir periodo:', error);
+
+        res.status(500).json({
+            message: 'Error del servidor'
+        });
+    }
+};
+export const cerrarPeriodo = async (req, res) => {
+
+    const { id } = req.params;
+
+    try {
+
+        const [result] = await db.execute(
+            `UPDATE periodos
+             SET estado = 'Cerrado'
+             WHERE id = ?`,
+            [id]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({
+                message: 'Periodo no encontrado'
+            });
+        }
+
+        res.json({
+            message: 'Periodo cerrado correctamente'
+        });
+
+    } catch (error) {
+
+        console.error('Error al cerrar periodo:', error);
+
+        res.status(500).json({
+            message: 'Error del servidor'
+        });
+    }
+};
+
+// PUT /api/periodos/:id
+export const actualizarPeriodo = async (req, res) => {
+    const { id } = req.params;
+
+    const {
+        nombre,
+        fecha_inicio,
+        fecha_fin,
+        estado
+    } = req.body;
+
+    if (!nombre || !fecha_inicio || !fecha_fin) {
+        return res.status(400).json({
+            message: 'Nombre, fecha de inicio y fecha de fin son requeridos'
+        });
+    }
+    if (fecha_fin < fecha_inicio) {
+        return res.status(400).json({ message: 'La fecha de cierre no puede ser anterior a la fecha de inicio' });
+    }
+
+    try {
+        const [result] = await db.execute(
+            `UPDATE periodos
+             SET nombre = ?,
+                 fecha_inicio = ?,
+                 fecha_fin = ?,
+                 estado = ?
+             WHERE id = ?`,
+            [
+                nombre,
+                fecha_inicio,
+                fecha_fin,
+                estado || 'Cerrado',
+                id
+            ]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({
+                message: 'Periodo no encontrado'
+            });
+        }
+
+        res.json({
+            message: 'Periodo actualizado correctamente'
+        });
+
+    } catch (error) {
+        console.error('Error al actualizar periodo:', error);
+
+        res.status(500).json({
+            message: 'Error del servidor'
+        });
+    }
+};
